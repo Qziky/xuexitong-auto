@@ -1,0 +1,28 @@
+name: Windows CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install locked dependencies
+        run: npm.cmd ci
+      - name: Type check
+        run: npm.cmd run typecheck
+      - name: Run tests
+        run: npm.cmd run test
+      - name: Build and package release artifacts
+        run: npm.cmd run release
+      - name: Audit production dependencies
+        run: npm.cmd audit --omit=dev

@@ -1,0 +1,110 @@
+<!doctype html>
+<html>
+  <head>
+    <title>示例章节测验</title>
+  </head>
+  <body>
+    <div class="workTitle">
+      章节测验 待完成 示例测验 截止时间:2027-01-30 23:46:00
+    </div>
+    <div class="TiMu newTiMu" data="0">
+      <div class="Zy_TItle">
+        <span class="newZy_TItle">【单选题】</span>
+        <div class="font-cxsecret fontLabel">1. 合成单选题正文：应按哪组标记完成示例操作？</div>
+      </div>
+      <ul>
+        <li
+          class="font-cxsecret"
+          onclick="addChoice(this)"
+          qid="900001"
+          qtype="0"
+          role="radio"
+        >
+          <label><span class="num_option" data="D">A</span></label
+          ><a class="fl after">选项样本一</a>
+        </li>
+        <li
+          class="font-cxsecret"
+          onclick="addChoice(this)"
+          qid="900001"
+          qtype="0"
+          role="radio"
+        >
+          <label><span class="num_option" data="B">B</span></label
+          ><a class="fl after">选项样本二</a>
+        </li>
+        <li
+          class="font-cxsecret"
+          onclick="addChoice(this)"
+          qid="900001"
+          qtype="0"
+          role="radio"
+        >
+          <label><span class="num_option" data="C">C</span></label
+          ><a class="fl after">选项样本三</a>
+        </li>
+        <li
+          class="font-cxsecret"
+          onclick="addChoice(this)"
+          qid="900001"
+          qtype="0"
+          role="radio"
+        >
+          <label><span class="num_option" data="A">D</span></label
+          ><a class="fl after">选项样本四</a>
+        </li>
+      </ul>
+      <input
+        type="hidden"
+        name="answer900001"
+        id="answer900001"
+        value="D"
+      /><input
+        type="hidden"
+        name="answertype900001"
+        id="answertype900001"
+        value="0"
+      />
+    </div>
+    <div class="TiMu newTiMu" data="3">
+      <div class="Zy_TItle">
+        <span class="newZy_TItle">【判断题】</span>
+        <div class="fontLabel">2. 示例判断题。</div>
+      </div>
+      <ul>
+        <li
+          onclick="addChoice(this)"
+          qid="900002"
+          qtype="3"
+          role="radio"
+          aria-label="对选择"
+        >
+          <span class="num_option" data="true">A</span
+          ><a class="fl after">对</a>
+        </li>
+        <li
+          onclick="addChoice(this)"
+          qid="900002"
+          qtype="3"
+          role="radio"
+          aria-label="错选择"
+        >
+          <span class="num_option" data="false">B</span
+          ><a class="fl after">错</a>
+        </li>
+      </ul>
+      <input
+        type="hidden"
+        name="answer900002"
+        id="answer900002"
+        value=""
+      /><input
+        type="hidden"
+        name="answertype900002"
+        id="answertype900002"
+        value="3"
+      />
+    </div>
+    <a onclick="noSubmit()">暂时保存</a><a onclick="btnBlueSubmit()">提交</a>
+  </body>
+</html>

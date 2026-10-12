@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+  <meta charset="UTF-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  />
+  <title>阅读性能合成夹具</title>
+  <style>
+    body {
+      font-family: system-ui;
+      background: #f5f7fb;
+      color: #24334b;
+      margin: 24px;
+    }
+    #reader {
+      height: 120px;
+      width: 360px;
+      overflow-y: auto;
+      background: white;
+      border: 1px solid #dbe2ef;
+    }
+    article section {
+      height: 120px;
+      box-sizing: border-box;
+      padding: 20px;
+      border-bottom: 1px solid #dbe2ef;
+    }
+    pre {
+      white-space: pre-wrap;
+    }
+  </style>
+  <h1>阅读性能合成夹具</h1>
+  <p>在同一原生滚动区域比较两种阅读节奏；使用当前源码，不访问学习通。</p>
+  <div id="reader" data-reader-scroll><article></article></div>
+  <pre id="result">等待运行</pre>
+  <script type="module" src="./learning-benchmark.ts"></script>
+</html>

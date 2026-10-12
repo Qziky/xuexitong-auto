@@ -1,0 +1,10 @@
+{
+  "extends": "./.wxt/tsconfig.json",
+  "exclude": ["**/node_modules", ".output", "dist", "artifacts/private"],
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "types": ["chrome", "node", "vitest/globals"],
+    "jsx": "react-jsx"
+  }
+}

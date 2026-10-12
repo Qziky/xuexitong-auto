@@ -1,0 +1,125 @@
+<!doctype html>
+<html>
+  <head>
+    <title>示例普通作业</title>
+  </head>
+  <body>
+    <div class="workTitle">示例普通作业 未交 截止时间：2027-03-02 17:55:00</div>
+    <form id="submitForm">
+      <div
+        class="padBom50 questionLi fontLabel singleQuesId"
+        typename="单选题"
+        id="question900011"
+        data="900011"
+      >
+        <h3
+          aria-hidden="true"
+          class="mark_name colorDeep fontLabel workTextWrap"
+        >
+          1.<span class="colorShallow">(单选题)</span>合成示例中，参数 a=3,b=4;，则
+          a&lt;b?a:b 的值是______。
+        </h3>
+        <input
+          type="hidden"
+          id="answertype900011"
+          name="answertype900011"
+        /><input
+          type="hidden"
+          id="answer900011"
+          name="answer900011"
+          value="B"
+        />
+        <div class="stem_answer qtDetail">
+          <div
+            class="clearfix answerBg workTextWrap"
+            onclick="addChoice(this)"
+            role="radio"
+            qid="900011"
+            qtype="0"
+            aria-checked="false"
+          >
+            <span data="A" class="num_option fl">A</span>
+            <div aria-hidden="true" class="fl answer_p"><p>3</p></div>
+          </div>
+          <div
+            class="clearfix answerBg workTextWrap"
+            onclick="addChoice(this)"
+            role="radio"
+            qid="900011"
+            qtype="0"
+            aria-checked="true"
+          >
+            <span data="B" class="num_option fl">B</span>
+            <div aria-hidden="true" class="fl answer_p"><p>4</p></div>
+          </div>
+        </div>
+      </div>
+      <div
+        class="questionLi"
+        typename="多选题"
+        id="question900012"
+        data="900012"
+      >
+        <h3 class="mark_name">
+          2.<span class="colorShallow">(多选题)</span>下列哪些是整数？
+        </h3>
+        <input type="hidden" id="answer900012" value="AC" />
+        <div
+          onclick="addChoice(this)"
+          role="checkbox"
+          qid="900012"
+          qtype="1"
+          aria-checked="true"
+        >
+          <span class="num_option" data="A">A</span>
+          <div class="answer_p">1</div>
+        </div>
+        <div
+          onclick="addChoice(this)"
+          role="checkbox"
+          qid="900012"
+          qtype="1"
+          aria-checked="false"
+        >
+          <span class="num_option" data="B">B</span>
+          <div class="answer_p">1.5</div>
+        </div>
+        <div
+          onclick="addChoice(this)"
+          role="checkbox"
+          qid="900012"
+          qtype="1"
+          aria-checked="true"
+        >
+          <span class="num_option" data="C">C</span>
+          <div class="answer_p">2</div>
+        </div>
+      </div>
+      <div
+        class="questionLi"
+        typename="填空题"
+        id="question900013"
+        data="900013"
+      >
+        <h3 class="mark_name">
+          3.<span class="colorShallow">(填空题)</span>按顺序填入两个示例值。
+        </h3>
+        <textarea id="answer900013_0">已有第一空</textarea
+        ><input type="text" id="answer900013_1" value="" />
+      </div>
+      <div
+        class="questionLi"
+        typename="简答题"
+        id="question900014"
+        data="900014"
+      >
+        <h3 class="mark_name">
+          4.<span class="colorShallow">(简答题)</span>请解释示例。
+        </h3>
+        <textarea id="answer900014"></textarea>
+      </div>
+    </form>
+    <a role="button" onclick="saveWork()">暂时保存</a
+    ><a role="button" onclick="submitValidate()">提交</a>
+  </body>
+</html>

@@ -1,0 +1,51 @@
+{
+  "name": "chaoxing-task-assistant",
+  "version": "0.5.9",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wxt -b edge",
+    "debug:setup": "node scripts/setup-debug.mjs",
+    "debug:edge": "node scripts/edge-debug.mjs start",
+    "debug:check": "node scripts/edge-debug.mjs status",
+    "debug:reload": "node scripts/edge-debug.mjs reload",
+    "debug:stop": "node scripts/edge-debug.mjs stop",
+    "debug:smoke": "node scripts/edge-smoke.mjs",
+    "debug:live": "node scripts/edge-live.mjs",
+    "debug:logs": "node scripts/edge-smoke.mjs --logs",
+    "debug:test": "npm run typecheck && npm run test && npm run debug:smoke",
+    "build": "npm run assets && wxt build -b edge",
+    "zip": "npm run assets && wxt zip -b edge",
+    "assets": "node scripts/prepare-assets.mjs",
+    "postinstall": "wxt prepare",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "preview": "vite --config vite.preview.config.ts --host 127.0.0.1",
+    "benchmark": "node scripts/benchmark.mjs",
+    "benchmark:learning": "node scripts/learning-benchmark.mjs",
+    "release": "npm run typecheck && npm run test && npm run zip && node scripts/release.mjs"
+  },
+  "dependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tesseract.js": "7.0.0"
+  },
+  "devDependencies": {
+    "@aklinker1/zero-zip": "1.0.1",
+    "@tesseract.js-data/chi_sim": "1.0.0",
+    "@tesseract.js-data/eng": "1.0.0",
+    "@types/chrome": "0.3.4",
+    "@types/node": "26.6.4",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@wxt-dev/module-react": "1.2.2",
+    "chrome-devtools-mcp": "1.10.1",
+    "fake-indexeddb": "6.2.4",
+    "happy-dom": "20.14.5",
+    "prettier": "3.9.9",
+    "typescript": "5.9.3",
+    "vitest": "5.0.3",
+    "wxt": "0.21.4"
+  }
+}

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>0.5.6 自动学习浏览器夹具</title>
+    <link rel="icon" type="image/png" href="/icon/16.png" />
+    <style>
+      body {
+        font: 16px system-ui;
+        background: #f5f7fc;
+        color: #20314e;
+        margin: 24px;
+      }
+      button {
+        padding: 12px;
+        margin: 8px;
+        background: white;
+        border: 1px solid #bbcbe5;
+        border-radius: 8px;
+      }
+      .card {
+        padding: 18px;
+        margin: 16px 0;
+        background: white;
+        border-radius: 12px;
+      }
+      #scrollReader {
+        height: 160px;
+        overflow: auto;
+        width: 360px;
+        border: 1px solid #aab;
+      }
+      article section {
+        height: 150px;
+        border-bottom: 1px solid #abc;
+        padding: 4px;
+      }
+      video {
+        width: 320px;
+        height: 150px;
+      }
+      #result {
+        white-space: pre-wrap;
+      }
+      #viewerContainer {
+        height: 130px;
+        overflow: auto;
+      }
+      .page {
+        padding: 10px;
+        min-height: 100px;
+      }
+      input {
+        width: 60px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>自动学习浏览器夹具 · 0.5.6</h1>
+    <p>本地真实布局、媒体流及原生控件。无学习通请求，不上报任务点。</p>
+    <button id="run">运行全部夹具</button><button id="cancel">取消</button
+    ><output id="result">尚未开始</output>
+    <div class="card">
+      <h2>真实逐屏滚动与懒加载</h2>
+      <div id="scrollReader" data-reader-scroll>
+        <article>
+          <section>第一屏</section>
+          <section>第二屏</section>
+          <section>第三屏</section>
+        </article>
+      </div>
+      <p id="scrollResult">等待</p>
+    </div>
+    <div class="card">
+      <h2>PDF.js 风格页码控件</h2>
+      <input aria-label="页码" id="pageNumber" value="2" /><span id="numPages"
+        >of 3</span
+      ><button id="previous">上一页</button><button id="next">下一页</button>
+      <div id="viewerContainer">
+        <div class="page" data-page-number="2" data-loaded="true">第2页</div>
+      </div>
+      <p id="pdfResult">等待</p>
+    </div>
+    <div class="card">
+      <h2>真实 HTMLMediaElement 播放与恢复</h2>
+      <video id="media" muted playsinline controls></video>
+      <p id="mediaResult">等待</p>
+    </div>
+    <script type="module" src="/learning-fixture.ts"></script>
+  </body>
+</html>

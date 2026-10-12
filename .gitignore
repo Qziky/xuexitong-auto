@@ -1,0 +1,12 @@
+node_modules/
+.wxt/
+.output/
+dist/
+public/ocr/
+public/icon/*.png
+.env*
+*.log
+coverage/
+/artifacts/
+artifacts/private/
+.codex/config.toml

@@ -1,0 +1,10 @@
+# This example contains no credential. Run npm.cmd run debug:setup to generate
+# the ignored local config.toml and its authorization header automatically.
+# BEGIN XUEXITONG EDGE DEBUG
+[mcp_servers.edge_devtools]
+url = "http://127.0.0.1:9223/mcp"
+http_headers = { Authorization = "Bearer GENERATED-BY-SETUP" }
+startup_timeout_sec = 60
+tool_timeout_sec = 180
+enabled = true
+# END XUEXITONG EDGE DEBUG

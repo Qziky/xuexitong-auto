@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+  <body>
+    <!-- prettier-ignore -->
+    <script>
+      var mArg = {
+        "attachments": [
+          {
+            "type": "video",
+            "job": true,
+            "jobid": "v01",
+            "objectId": "video01",
+            "property": {
+              "module": "insertvideo",
+              "name": "示例视频",
+              "objectid": "video01"
+            }
+          },
+          {
+            "type": "work",
+            "job": true,
+            "jobid": "work-900",
+            "property": { "module": "work", "workid": "900", "title": "示例章节测验" }
+          },
+          { "property": { "module": "downloadfile", "name": "非任务点PDF" } }
+        ]
+      };
+    </script>
+    <div class="ans-attach-ct">
+      <span class="ans-job-icon">任务点未完成</span
+      ><iframe
+        src="/ananas/modules/video/index.html"
+        data='{"jobid":"v01"}'
+      ></iframe>
+    </div>
+    <div class="ans-attach-ct">
+      <iframe
+        src="/ananas/modules/work/index.html"
+        data='{"jobid":"work-900","workid":"900"}'
+      ></iframe>
+    </div>
+  </body>
+</html>
