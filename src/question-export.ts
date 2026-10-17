@@ -1,5 +1,6 @@
 import type { AnswerProposal, PageSnapshot, QuestionRecord } from './domain';
 import { existingProposal, normalizeText } from './answers';
+import { answerImages } from './image-content';
 
 export const QUESTION_TYPE_LABEL = {
   single: '单选题',
@@ -63,6 +64,11 @@ export function exportQuestions(
     if (q.issues.length) lines.push('【内容待确认】' + q.issues.join('；'));
     for (const option of q.options)
       lines.push(option.label + '. ' + option.text);
+    for (const image of answerImages(q))
+      lines.push(
+        image.placeholder +
+          '：原图材料（TXT 不包含图片，可在题目详情下载原图）',
+      );
     const reference = proposals.find(
       (p) => p.questionId === q.id && p.source !== 'own',
     );

@@ -127,9 +127,7 @@ export function RecognitionSettings({
         </select>
       </label>
       <p className="help">
-        用于题干和选项中的文字、公式图片。公式转录保留上下标、分式和极限条件；仅用
-        OCR
-        或图片类型尚未确认时，转录结果需人工复核。图表、照片和附件仍需人工处理。
+        用于题干和选项图片。文字与公式优先转录；无法可靠转录的图表、照片或公式保留原图，生成参考时由视觉模型结合文字作答。选择人工复核时仍由你确认文字。
       </p>
       <label className="toggle-row">
         <span>
@@ -151,7 +149,7 @@ export function RecognitionSettings({
         </p>
       )}
       <p className="help">
-        点击识别文字或一键处理后启动文字和图片转录；点击生成参考答案后才解题。仅打开页面不会启动
+        点击识别文字或一键处理后启动文字和图片转录、保存原图材料；点击生成参考答案后才解题。仅打开页面不会启动
         OCR 或模型。
       </p>
       <label>

@@ -1,9 +1,11 @@
 import type { QuestionRecord, RecognitionTrace } from '../domain';
+import { MathText } from './MathText';
 const SOURCES = {
   web: '网页原文',
   ocr: 'OCR',
   vision: '视觉识别',
   manual: '人工确认',
+  image: '原图材料',
 };
 export function RecognitionSource({ trace }: { trace?: RecognitionTrace }) {
   if (!trace) return null;
@@ -38,7 +40,13 @@ export function RecognitionDetails({ question }: { question: QuestionRecord }) {
               <div className="recognition-attempt" key={index}>
                 <span>
                   {SOURCES[attempt.engine]} ·{' '}
-                  {attempt.success ? '已确认' : '未通过'}
+                  {attempt.engine === 'image'
+                    ? attempt.success
+                      ? '已保存'
+                      : '保存失败'
+                    : attempt.success
+                      ? '已确认'
+                      : '未通过'}
                 </span>
                 {attempt.readings?.map((reading, i) => (
                   <div key={i}>
@@ -48,11 +56,15 @@ export function RecognitionDetails({ question }: { question: QuestionRecord }) {
                         ? Math.round(reading.confidence)
                         : '未知'}
                     </span>
-                    <pre>{reading.text || '（空结果）'}</pre>
+                    <pre>
+                      <MathText text={reading.text || '（空结果）'} />
+                    </pre>
                   </div>
                 ))}
                 {!attempt.readings?.length && attempt.text && (
-                  <pre>{attempt.text}</pre>
+                  <pre>
+                    <MathText text={attempt.text} />
+                  </pre>
                 )}
                 {attempt.reason && <p className="amber">{attempt.reason}</p>}
               </div>

@@ -66,6 +66,7 @@ async function run(
         signal,
         pulse,
         job.priority,
+        job.imageProvider,
       );
     case 'test': {
       const started = performance.now();

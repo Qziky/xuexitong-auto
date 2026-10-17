@@ -368,9 +368,10 @@ describe('文字识别策略与有限兜底', () => {
       'fetch',
       vi.fn(
         async () =>
-          new Response(new Uint8Array([1]), {
-            headers: { 'Content-Type': 'image/png' },
-          }),
+          new Response(
+            new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
+            { headers: { 'Content-Type': 'image/png' } },
+          ),
       ),
     );
     const close = vi.fn();

@@ -880,6 +880,7 @@ export async function restoreSnapshot(
       const imageQuestion = images.questions.find(
         (candidate) => candidate.id === q.id,
       )!;
+      q.images = imageQuestion.images ?? q.images;
       q.recognition!.images = imageQuestion.recognition?.images ?? {};
       q.issues = q.issues.filter(
         (issue) => issue !== '题目文字识别需检查（图片待识别）',
@@ -913,15 +914,27 @@ export async function restoreSnapshot(
                 reason +
                 '）',
             );
-            if (evidence.attempts.some((a) => a.contentKind === 'unsupported'))
+            if (
+              !evidence.source &&
+              evidence.attempts.some((a) => a.contentKind === 'unsupported')
+            )
               q.issues.push('图片不是可完整转录的文字或公式，需人工处理');
           } else text = text.replace(image.placeholder, reading.text);
         }
         const engine = parts.some(
-          (image) => q.recognition!.images![image.id]?.source === 'vision',
+          (image) => q.recognition!.images![image.id]?.source === 'image',
         )
-          ? 'vision'
-          : 'ocr';
+          ? 'image'
+          : parts.some(
+                (image) =>
+                  q.recognition!.images![image.id]?.source === 'vision',
+              )
+            ? 'vision'
+            : parts.every(
+                  (image) => q.recognition!.images![image.id]?.source === 'web',
+                )
+              ? 'web'
+              : 'ocr';
         trace.attempts.push({
           engine,
           success: good,

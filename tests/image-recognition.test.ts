@@ -1,4 +1,7 @@
+import 'fake-indexeddb/auto';
+import { Blob as NativeBlob } from 'node:buffer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { imageMaterials } from '../src/image-materials';
 import {
   DEFAULT_PROVIDER,
   DEFAULT_RECOGNITION,
@@ -21,6 +24,7 @@ const URL =
   'https://mooc1.chaoxing.com/mooc-ans/mooc2/work/dowork?courseId=100&classId=200&workId=901';
 const provider = { ...DEFAULT_PROVIDER, apiKey: 'image-test-placeholder' };
 const raster = vi.fn();
+const PNG_BYTES = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 let fetcher: ReturnType<typeof vi.fn>;
 let close: ReturnType<typeof vi.fn>;
 let draw: ReturnType<typeof vi.fn>;
@@ -69,13 +73,15 @@ async function restore(
     signal,
   );
 }
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
+  vi.stubGlobal('Blob', NativeBlob);
+  await imageMaterials.clear();
   close = vi.fn();
   draw = vi.fn();
   fetcher = vi.fn(
     async () =>
-      new Response(new Uint8Array([1, 2, 3]), {
+      new Response(PNG_BYTES, {
         headers: { 'Content-Type': 'image/png' },
       }),
   );
@@ -125,6 +131,114 @@ afterEach(() => {
 });
 
 describe('题目原始图片与公式识别', () => {
+  it.each([
+    {
+      imageStrategy: 'ocr-only',
+      kind: 'formula',
+      visualText: String.raw`\(A\)`,
+      confirmed: true,
+    },
+    {
+      imageStrategy: 'vision-first',
+      kind: 'formula',
+      visualText: String.raw`\(A\)`,
+      confirmed: true,
+    },
+    {
+      imageStrategy: 'vision-first',
+      kind: 'unsupported',
+      visualText: '无法转录',
+      confirmed: true,
+    },
+    {
+      imageStrategy: 'vision-first',
+      kind: 'text',
+      visualText: '4',
+      confirmed: false,
+    },
+  ] as const)(
+    '单字母交叉复核：$imageStrategy / $kind / $visualText',
+    async ({ imageStrategy, kind, visualText, confirmed }) => {
+      vi.mocked(createImageBitmap).mockResolvedValue({
+        width: 16,
+        height: 18,
+        close,
+      } as unknown as ImageBitmap);
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+        fillRect: vi.fn(),
+        drawImage: draw,
+        getImageData: (
+          _x: number,
+          _y: number,
+          width: number,
+          height: number,
+        ) => {
+          const data = new Uint8ClampedArray(width * height * 4).fill(255);
+          const rows = [
+            '...##...',
+            '..#..#..',
+            '.#....#.',
+            '.######.',
+            '.#....#.',
+            '.#....#.',
+            '.#....#.',
+          ];
+          rows.forEach((row, y) =>
+            [...row].forEach((pixel, x) => {
+              if (pixel === '#')
+                data.fill(
+                  0,
+                  ((y + 15) * width + x + 15) * 4,
+                  ((y + 15) * width + x + 15) * 4 + 3,
+                );
+            }),
+          );
+          return { data };
+        },
+      } as unknown as CanvasRenderingContext2D);
+      mock.transcribe.mockImplementation(async (_config, segments) => {
+        await segments[0].render();
+        return new Map([
+          [
+            'q10:image1',
+            {
+              engine: 'vision',
+              success: false,
+              contentKind: kind,
+              text: visualText,
+              reason: '需交叉确认',
+            },
+          ],
+        ]);
+      });
+      raster.mockResolvedValue({
+        engine: 'ocr',
+        success: true,
+        text: 'A',
+        readings: [
+          { text: 'A', confidence: 95 },
+          { text: 'A', confidence: 96 },
+        ],
+      });
+      const result = await restore({ imageStrategy });
+      const q = result.questions[0]!;
+      if (!confirmed) {
+        expect(q.stem).toContain('〔图片1〕');
+        expect(q.recognition?.images?.['q10:image1']?.source).toBe('image');
+        expect(q.images?.[0]?.material).toBeDefined();
+        return;
+      }
+      expect(q.stem).toBe(String.raw`极限\(A\)=____。`);
+      expect(q.recognition?.images?.['q10:image1']?.source).toBe('ocr');
+      expect(q.images?.[0]?.material).toBeUndefined();
+      expect(q.issues).toEqual([]);
+      expect(
+        q.recognition?.images?.['q10:image1']?.attempts.some(
+          (attempt) => attempt.engine === 'image',
+        ),
+      ).toBe(false);
+    },
+  );
   it('默认优先视觉，完整合并极限条件，不把公式下标或括号当作填空差异', async () => {
     const result = await restore();
     const q = result.questions[0]!;
@@ -199,7 +313,7 @@ describe('题目原始图片与公式识别', () => {
     ).toEqual([false, true]);
     expect(result.questions[0]!.issues).toEqual([]);
   });
-  it('视觉不确定时 OCR 公式预览仍需确认，其他题结果不受影响', async () => {
+  it('视觉与 OCR 无法可靠转录时保存原图作答，其他题结果不受影响', async () => {
     mock.transcribe.mockResolvedValue(
       new Map([
         [
@@ -224,11 +338,16 @@ describe('题目原始图片与公式识别', () => {
       recognition: { stem: { source: 'web', attempts: [] }, options: {} },
     });
     const result = await restore({}, p);
-    expect(result.questions[0]!.recognition?.stem.source).toBeUndefined();
-    expect(result.questions[0]!.issues.join()).toContain('人工确认');
+    expect(result.questions[0]!.recognition?.stem.source).toBe('image');
+    expect(result.questions[0]!.stem).toContain('〔图片1〕');
+    expect(result.questions[0]!.stem).not.toContain('lim x 7');
+    expect(result.questions[0]!.issues).toEqual([]);
+    expect(
+      await imageMaterials.read(result.questions[0]!.images![0]!.material!),
+    ).toBeInstanceOf(Blob);
     expect(result.questions[1]!.stem).toBe('普通文字');
   });
-  it('图表不被文字兜底自动放行，保留非文字问题', async () => {
+  it('图表保留原图材料，不依赖 OCR 猜测文字', async () => {
     mock.transcribe.mockResolvedValue(
       new Map([
         [
@@ -243,10 +362,76 @@ describe('题目原始图片与公式识别', () => {
       ]),
     );
     const result = await restore();
-    expect(result.questions[0]!.issues).toContain(
-      '图片不是可完整转录的文字或公式，需人工处理',
+    expect(result.questions[0]!.issues).toEqual([]);
+    expect(result.questions[0]!.recognition?.stem.source).toBe('image');
+    expect(result.questions[0]!.images![0]!.material?.imageId).toBe(
+      'q10:image1',
     );
+    expect(result.questions[0]!.images![0]!.material).not.toHaveProperty(
+      'blob',
+    );
+    expect(result.questions[0]!.images![0]!.src).toBeUndefined();
+    expect(result.questions[0]!.stem).toBe('极限〔图片1〕=____。');
     expect(raster).not.toHaveBeenCalled();
+  });
+  it('保存原图不解除文字识别或题目结构本身的问题', async () => {
+    mock.transcribe.mockResolvedValue(new Map());
+    const p = page();
+    p.questions[0]!.recognition = { stem: { attempts: [] }, options: {} };
+    p.questions[0]!.issues.push(
+      '混淆字体加载失败，需人工检查',
+      '选项内容或答案键不完整',
+    );
+    await restore({ imageStrategy: 'vision-only' }, p);
+    expect(p.questions[0]!.images![0]!.material).toBeDefined();
+    expect(p.questions[0]!.recognition?.stem.source).toBeUndefined();
+    expect(p.questions[0]!.issues).toContain('混淆字体加载失败，需人工检查');
+    expect(p.questions[0]!.issues).toContain('选项内容或答案键不完整');
+  });
+  it('没有视觉识别密钥时仍可准备原图，随后作答再检查视觉服务', async () => {
+    const p = page();
+    await restoreQuestionImages(
+      p,
+      { ...DEFAULT_RECOGNITION, imageStrategy: 'vision-only' },
+      undefined,
+      raster,
+    );
+    expect(p.questions[0]!.recognition?.stem.source).toBe('image');
+    expect(p.questions[0]!.images![0]!.material).toBeDefined();
+    expect(mock.transcribe).not.toHaveBeenCalled();
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+  it('整页还原合并保留原图引用，生成参考时仍能读取同一份材料', async () => {
+    const { restoreSnapshot } = await import('../src/ocr');
+    mock.transcribe.mockResolvedValue(new Map());
+    const result = await restoreSnapshot(
+      page(),
+      '/ocr',
+      undefined,
+      undefined,
+      { ...DEFAULT_RECOGNITION, imageStrategy: 'vision-only' },
+      provider,
+    );
+    const question = result.questions[0]!;
+    expect(question.recognition?.stem.source).toBe('image');
+    expect(question.stem).toContain('〔图片1〕');
+    expect(question.images![0]!.src).toBeUndefined();
+    expect(question.issues).toEqual([]);
+    expect(
+      (await imageMaterials.read(question.images![0]!.material!)).type,
+    ).toBe('image/png');
+    expect(JSON.stringify(result)).not.toMatch(/data:image|base64|"blob"/);
+  });
+  it('原图保存失败不能冒充材料已准备', async () => {
+    mock.transcribe.mockResolvedValue(new Map());
+    vi.spyOn(imageMaterials, 'save').mockRejectedValue(
+      new Error('本机缓存空间不足'),
+    );
+    const p = page();
+    await restore({ imageStrategy: 'vision-only' }, p);
+    expect(p.questions[0]!.recognition?.stem.source).toBeUndefined();
+    expect(p.questions[0]!.images![0]!.material).toBeUndefined();
+    expect(p.questions[0]!.issues.join()).toContain('本机缓存空间不足');
   });
   it('视觉确认图片类型为文字后，可靠 OCR 兜底清除视觉警告并正确完成进度', async () => {
     mock.transcribe.mockResolvedValue(
@@ -312,6 +497,80 @@ describe('题目原始图片与公式识别', () => {
     expect(draw.mock.calls[0]!.slice(1)).toEqual([12, 12, 208, 116]);
     expect(close).toHaveBeenCalledOnce();
   });
+  it('旧 CDN 地址的题干和选项图片跳转后仍能转录，且不携带登录凭据', async () => {
+    const p = page();
+    const q = p.questions[0]!;
+    q.images![0]!.src = 'https://p.ananas.chaoxing.com/star3/origin/stem.png';
+    q.options = [{ id: 'o1', key: 'D', label: 'A', text: '〔图片2〕' }];
+    q.images!.push({
+      ...q.images![0]!,
+      id: 'q10:image2',
+      placeholder: '〔图片2〕',
+      part: 'option',
+      optionId: 'o1',
+      src: 'https://p.ananas.chaoxing.com/star3/origin/option.png',
+      resourceKey: 'option',
+    });
+    fetcher.mockImplementation(async (src: string, init: RequestInit) => {
+      // The CDN returns 301 from star3/origin/*.png to star4/*/origin.png.
+      // Its wildcard CORS header also rejects credentialed page requests.
+      if (init.redirect !== 'follow' || init.credentials !== 'omit')
+        throw new TypeError('Failed to fetch');
+      return Object.defineProperty(
+        new Response(PNG_BYTES, {
+          headers: { 'Content-Type': 'image/png' },
+        }),
+        'url',
+        {
+          value: src.replace(
+            /star3\/origin\/(.+)\.png$/,
+            'star4/$1/origin.png',
+          ),
+        },
+      );
+    });
+    await restore({ imageStrategy: 'vision-only' }, p);
+    expect(q.recognition?.stem.source).toBe('vision');
+    expect(q.recognition?.options.o1?.source).toBe('vision');
+    expect(q.stem).not.toContain('〔图片');
+    expect(q.options[0]!.text).not.toContain('〔图片');
+    expect(q.options[0]).toMatchObject({ key: 'D', label: 'A' });
+    expect(q.existing).toEqual(['']);
+    expect(q.issues).toEqual([]);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(close).toHaveBeenCalledTimes(2);
+  });
+  it.each([
+    'https://example.com/image.png',
+    'http://p.ananas.chaoxing.com/image.png',
+    'https://mooc1.chaoxing.com/image.png',
+    'https://user@p.ananas.chaoxing.com/image.png',
+  ])('拒绝 CDN 跳转到非原图片来源：%s', async (url) => {
+    const response = Object.defineProperty(
+      new Response(PNG_BYTES, {
+        headers: { 'Content-Type': 'image/png' },
+      }),
+      'url',
+      { value: url },
+    );
+    fetcher.mockResolvedValueOnce(response);
+    await expect(
+      loadImageCanvas(page().questions[0]!.images![0]!, URL),
+    ).rejects.toThrow('图片跳转地址');
+    expect(createImageBitmap).not.toHaveBeenCalled();
+    expect(response.body?.locked).toBe(false);
+  });
+  it('需要登录的课程图片仍携带凭据，且不自动跟随跳转', async () => {
+    const image = {
+      ...page().questions[0]!.images![0]!,
+      src: 'https://mooc1.chaoxing.com/work/attachment?id=1',
+    };
+    await loadImageCanvas(image, URL);
+    expect(fetcher).toHaveBeenCalledWith(
+      image.src,
+      expect.objectContaining({ credentials: 'include', redirect: 'error' }),
+    );
+  });
   it('外部地址、超大资源及非图片资源被拒绝', async () => {
     const image = page().questions[0]!.images![0]!;
     await expect(
@@ -328,6 +587,63 @@ describe('题目原始图片与公式识别', () => {
       new Response('page', { headers: { 'Content-Type': 'text/html' } }),
     );
     await expect(loadImageCanvas(image, URL)).rejects.toThrow('不是受支持');
+  });
+  it.each([
+    'application/octet-stream, image/jpeg;charset=utf-8',
+    'application/octet-stream',
+    'text/plain',
+    '',
+  ])('公式端点的 PNG 不因错误响应头 %s 而识别失败', async (type) => {
+    const p = page();
+    p.questions[0]!.number = 20;
+    p.questions[0]!.images![0]!.src =
+      'https://mooc1.chaoxing.com/ananas/latex/p/12345';
+    fetcher.mockResolvedValueOnce(
+      new Response(PNG_BYTES, { headers: { 'Content-Type': type } }),
+    );
+    await restore({ imageStrategy: 'vision-only' }, p);
+    expect(p.questions[0]!.recognition?.stem.source).toBe('vision');
+    expect(p.questions[0]!.issues).toEqual([]);
+    expect(createImageBitmap).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'image/png' }),
+    );
+    expect(close).toHaveBeenCalledOnce();
+  });
+  it.each([
+    ['image/jpeg', [255, 216, 255, 224]],
+    ['image/webp', [82, 73, 70, 70, 0, 0, 0, 0, 87, 69, 66, 80]],
+  ] as const)('以文件签名确认 %s，不依赖扩展名或标注', async (type, bytes) => {
+    fetcher.mockResolvedValueOnce(
+      new Response(new Uint8Array(bytes), {
+        headers: { 'Content-Type': 'image/png' },
+      }),
+    );
+    await loadImageCanvas(page().questions[0]!.images![0]!, URL);
+    expect(createImageBitmap).toHaveBeenCalledWith(
+      expect.objectContaining({ type }),
+    );
+  });
+  it('没有受支持的图片签名时，不因响应头声称是 PNG 而接受', async () => {
+    fetcher.mockResolvedValueOnce(
+      new Response('<html>not an image</html>', {
+        headers: { 'Content-Type': 'image/png' },
+      }),
+    );
+    await expect(
+      loadImageCanvas(page().questions[0]!.images![0]!, URL),
+    ).rejects.toThrow('不是受支持');
+    expect(createImageBitmap).not.toHaveBeenCalled();
+  });
+  it('验证码即使标成二进制图片也暂停，不送入识别', async () => {
+    fetcher.mockResolvedValueOnce(
+      new Response('【9010】操作异常，请输入图片中的验证码', {
+        headers: { 'Content-Type': 'application/octet-stream, image/jpeg' },
+      }),
+    );
+    await expect(
+      loadImageCanvas(page().questions[0]!.images![0]!, URL),
+    ).rejects.toBeInstanceOf(PlatformAccessError);
+    expect(createImageBitmap).not.toHaveBeenCalled();
   });
   it('图片资源的限流和验证码进入平台暂停而非普通识别错误', async () => {
     const image = page().questions[0]!.images![0]!;

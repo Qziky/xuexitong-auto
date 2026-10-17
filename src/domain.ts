@@ -1,5 +1,5 @@
-export const TEXT_PROCESSING_VERSION = 6;
-export const PAGE_TEXT_PROCESSING_VERSION = 11;
+export const TEXT_PROCESSING_VERSION = 9;
+export const PAGE_TEXT_PROCESSING_VERSION = 12;
 export type TaskType = 'video' | 'quiz' | 'homework';
 export type TaskStatus =
   'pending' | 'submitted' | 'complete' | 'unknown' | 'review' | 'expired';
@@ -51,12 +51,12 @@ export const DEFAULT_RECOGNITION: RecognitionSettings = {
   visionConcurrency: 5,
 };
 export interface RecognitionAttempt {
-  engine: 'web' | 'ocr' | 'vision' | 'manual';
+  engine: 'web' | 'ocr' | 'vision' | 'manual' | 'image';
   success: boolean;
   text?: string;
   readings?: { text: string; confidence: number }[];
   reason?: string;
-  contentKind?: 'text' | 'formula' | 'unsupported';
+  contentKind?: 'text' | 'formula' | 'unsupported' | 'image';
 }
 export interface RecognitionTrace {
   source?: RecognitionAttempt['engine'];
@@ -247,6 +247,18 @@ export interface LearningQueue {
   note?: string;
   lastHeartbeatAt?: number;
 }
+export interface ImageMaterialRef {
+  id: string;
+  digest: string;
+  accountId: string;
+  taskKey: string;
+  fingerprint: string;
+  imageId: string;
+  mimeType: string;
+  byteLength: number;
+  width: number;
+  height: number;
+}
 export interface QuestionImage {
   id: string;
   part: 'stem' | 'option';
@@ -254,6 +266,9 @@ export interface QuestionImage {
   placeholder: string;
   src?: string;
   resourceKey: string;
+  /** Original LaTeX supplied by the page's formula widget. */
+  latex?: string;
+  material?: ImageMaterialRef;
   width?: number;
   height?: number;
 }
@@ -438,7 +453,7 @@ export interface OperationProgress {
   questionNumber?: number;
   questionId?: string;
   part?: string;
-  engine?: 'web' | 'ocr' | 'vision' | 'manual';
+  engine?: 'web' | 'ocr' | 'vision' | 'manual' | 'image';
   requestStartedAt?: number;
   timeoutSec?: number;
   attempt?: number;
@@ -485,7 +500,7 @@ export interface LogEvent {
   questionNumber?: number;
   questionId?: string;
   part?: string;
-  engine?: 'web' | 'ocr' | 'vision' | 'manual';
+  engine?: 'web' | 'ocr' | 'vision' | 'manual' | 'image';
   code: string;
   message: string;
   confidence?: number;

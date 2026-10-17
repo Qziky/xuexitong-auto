@@ -322,7 +322,8 @@ details[open] > summary {
   background: #fff5e8;
 }
 .recognition-source.ocr,
-.recognition-source.vision {
+.recognition-source.vision,
+.recognition-source.image {
   color: #456aaf;
   background: #edf3ff;
 }
@@ -821,9 +822,62 @@ legend {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
-.question-options li > span {
+.question-options li > span:first-child {
   color: var(--muted);
   flex-shrink: 0;
+}
+.math-text {
+  min-width: 0;
+}
+.question-option-content {
+  flex: 1;
+  min-width: 0;
+}
+.question-image-materials {
+  min-width: 0;
+  margin: 8px 0 12px;
+}
+.question-image-material {
+  margin: 8px 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f9fbff;
+  white-space: normal;
+}
+.question-image-material figcaption {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.question-image-material img {
+  display: block;
+  max-width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+  background: white;
+}
+.question-image-material a {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 11px;
+}
+.math-expression {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.2em 0.25em;
+  scrollbar-width: thin;
+  vertical-align: middle;
+  white-space: normal;
+}
+.math-expression.display-math {
+  display: block;
+}
+.math-expression .katex-display {
+  margin: 0.5em 0;
+  text-align: left;
 }
 .answer-comparison {
   display: grid;
@@ -840,6 +894,7 @@ legend {
 }
 .answer-comparison dd {
   margin: 0;
+  min-width: 0;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }

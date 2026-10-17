@@ -1,5 +1,6 @@
 import type { PageSnapshot, QuestionImage, QuestionRecord } from './domain';
 import { hashText, safePageUrl } from './security';
+import { pageFormula } from './formula-content';
 
 /** Replace images in a cloned text region, preserving their DOM order. */
 export function extractImageContent(
@@ -13,6 +14,7 @@ export function extractImageContent(
   for (const node of region?.querySelectorAll('img') ?? []) {
     const index = images.length + 1;
     const raw = node.getAttribute('src') ?? '';
+    const latex = pageFormula(node);
     const src =
       safePageUrl(raw, base) ??
       (/^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(raw) &&
@@ -26,7 +28,8 @@ export function extractImageContent(
       ...(optionId ? { optionId } : {}),
       placeholder,
       src,
-      resourceKey: hashText(raw),
+      resourceKey: hashText(latex ? JSON.stringify([raw, latex]) : raw),
+      ...(latex ? { latex } : {}),
       width: Number(node.getAttribute('width')) || undefined,
       height: Number(node.getAttribute('height')) || undefined,
     });
@@ -43,6 +46,17 @@ export function imagesForPart(
       ? image.part === 'stem'
       : image.part === 'option' && image.optionId === optionId,
   );
+}
+
+/** Images still referenced by the prepared text must accompany the solve request. */
+export function answerImages(question: QuestionRecord): QuestionImage[] {
+  return (question.images ?? []).filter((image) => {
+    const text =
+      image.part === 'stem'
+        ? question.stem
+        : question.options.find((option) => option.id === image.optionId)?.text;
+    return text?.includes(image.placeholder);
+  });
 }
 
 export function requiresTextRecognition(

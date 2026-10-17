@@ -6,6 +6,7 @@ import type {
   TaskRecord,
 } from '../domain';
 import { taskCapabilities } from '../page-workspace';
+import { answerImages } from '../image-content';
 export function workspaceStep(state: AppState, taskId: string): number {
   const workflow = state.workflows[taskId],
     record = state.preparations[taskId];
@@ -85,7 +86,9 @@ export function Workspace({
     '检测到 ' + count + ' 道题，点击后读取并识别文字。',
     textReview
       ? textReview + ' 道题文字需检查；可先复核，或只为已确认的题目生成参考。'
-      : '文字已确认。生成参考只提供答案，不修改网页。',
+      : questions.some((question) => answerImages(question).length)
+        ? '文字与原图材料已准备。生成参考会结合原图作答，不修改网页。'
+        : '文字已确认。生成参考只提供答案，不修改网页。',
     answerReview
       ? answerReview + ' 道参考需检查。提交前需要核对，草稿可保留候选。'
       : '参考已生成。填写前会重新核对页面和已有答案。',
@@ -146,7 +149,8 @@ export function Workspace({
         </p>
         {(record?.phase === 'error' ||
           record?.phase === 'cancelled' ||
-          workflow?.phase === 'error' || (workflow?.phase === 'review' && !record?.snapshot)) && (
+          workflow?.phase === 'error' ||
+          (workflow?.phase === 'review' && !record?.snapshot)) && (
           <p className="warning">{workflow?.note ?? record?.note}</p>
         )}
         {step === 0 && (
@@ -228,7 +232,11 @@ export function Workspace({
               保存已触发，服务端结果待确认。{workflow.note}
             </p>
             {!record?.snapshot && !workflow.submitAttempted && (
-              <button className="primary" disabled={busy || !capability.save} onClick={() => onAction('draft')}>
+              <button
+                className="primary"
+                disabled={busy || !capability.save}
+                onClick={() => onAction('draft')}
+              >
                 核验上次草稿
               </button>
             )}

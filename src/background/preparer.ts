@@ -31,7 +31,12 @@ import { taskIdentifiers, matchesTaskFrameKey } from '../task-context';
 import { isChaoxingUrl } from '../security';
 import type { ProgressDetail } from '../progress';
 import { operationEvent, updateOperation } from './operations';
-import { resolveTask, resolveWorkspace, assertTaskCapability } from '../page-workspace';
+import {
+  resolveTask,
+  resolveWorkspace,
+  assertTaskCapability,
+} from '../page-workspace';
+import { answerImages } from '../image-content';
 export type PreparationMode = 'full' | 'decode' | 'solve';
 type PreparationProgress = (
   note: string,
@@ -119,7 +124,7 @@ export async function decodePage(
   for (const q of page.questions) {
     operationEvent(
       runId,
-      `第 ${q.number} 题${q.issues.length ? '需要检查：' + q.issues.join('；') : '文字与题型复核通过'}`,
+      `第 ${q.number} 题${q.issues.length ? '需要检查：' + q.issues.join('；') : '题目材料与题型复核通过'}`,
       {
         code: q.issues.length ? 'question-review' : 'question-confirmed',
         questionNumber: q.number,
@@ -181,7 +186,10 @@ export async function solveDecodedPage(
     `待生成 ${needed.length} 题答案，保留 ${proposals.length} 题已有答案`,
     { stage: 'solving', done: 0, total: needed.length },
   );
-  if (needed.length && !provider.apiKey)
+  if (
+    needed.some((question) => !answerImages(question).length) &&
+    !provider.apiKey
+  )
     throw new Error('请在设置中配置答题模型服务');
   for (let i = 0; i < needed.length; i += 5) {
     if (signal.aborted) throw new Error('操作已取消');
@@ -207,6 +215,7 @@ export async function solveDecodedPage(
             priority:
               runId && state.operations[runId]?.kind === 'queue' ? 1 : 0,
             provider: { ...provider },
+            imageProvider: effectiveVisionProvider(),
             questions: needed.slice(i, i + 5),
             policy: solvePolicy,
           },
@@ -414,8 +423,7 @@ export async function prepareTask(
               item,
               expected,
               state.preparations[task.id]?.snapshot?.taskKey,
-            ) &&
-            item.taskKind === task.type,
+            ) && item.taskKind === task.type,
         ) ?? found.ref;
     }
     if (selection !== selectionVersion) return;
@@ -575,6 +583,7 @@ export async function prepareQuestion(
       {
         op: 'solve',
         provider: { ...provider },
+        imageProvider: effectiveVisionProvider(),
         questions: [structuredClone(currentQuestion)],
         policy: 'overwrite',
       },
@@ -718,9 +727,10 @@ async function prepare(
       await persist();
       return;
     }
-    const cached = mode === 'full'
-      ? reusablePreparation(raw, task, state.draftPolicy)
-      : undefined;
+    const cached =
+      mode === 'full'
+        ? reusablePreparation(raw, task, state.draftPolicy)
+        : undefined;
     if (cached) {
       // The content is reusable; its old tab binding is not. Extraction above
       // has checked the current page and answers before accepting this cache.
@@ -787,7 +797,11 @@ async function prepare(
       record.note = '平台完成状态无法确认，请到原页面核对';
       return;
     }
-    if (mode === 'full' && !provider.apiKey) {
+    if (
+      mode === 'full' &&
+      !provider.apiKey &&
+      !effectiveVisionProvider()?.apiKey
+    ) {
       record.phase = 'error';
       record.note = '请在设置中配置模型服务后重新生成答案';
       return;

@@ -7,7 +7,7 @@ export interface ProgressDetail {
   questionNumber?: number;
   questionId?: string;
   part?: string;
-  engine?: 'web' | 'ocr' | 'vision' | 'manual';
+  engine?: 'web' | 'ocr' | 'vision' | 'manual' | 'image';
   done?: number;
   total?: number;
   success?: number;

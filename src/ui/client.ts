@@ -511,6 +511,25 @@ function buildDemoState(applyScenario = true): AppState {
     s.workflows = {};
     s.operations = {};
   }
+  if (scenario === 'math') {
+    sampleQuestions[0]!.stem = String.raw`设 \(f(x)=\frac{x^2+1}{\sqrt{x+2}}\)，求 \(f(2)\)。`;
+    sampleQuestions[0]!.options[0]!.text = String.raw`\(\frac{5}{2}\)`;
+    sampleQuestions[0]!.options[1]!.text = String.raw`\(\sqrt{5}\)`;
+    sampleQuestions[0]!.existing = ['q1:o1'];
+    sampleQuestions[0]!.recognition!.stem.attempts = [
+      { engine: 'vision', success: true, text: sampleQuestions[0]!.stem },
+    ];
+    sampleQuestions[1]!.stem = String.raw`根据公式 \[\sum_{k=1}^{n}k=\frac{n(n+1)}{2}\]，填写参数与结果。`;
+    sampleQuestions[1]!.existing = [String.raw`\(n=4\)`, String.raw`\(10\)`];
+    sampleQuestions[1]!.recognition!.stem.attempts = [
+      { engine: 'vision', success: true, text: sampleQuestions[1]!.stem },
+    ];
+    s.preparations.t1!.proposals![0]!.explanation = String.raw`代入 \(x=2\)，得 \(f(2)=\frac{2^2+1}{\sqrt{2+2}}=\frac{5}{2}\)。`;
+    s.preparations.t1!.proposals![1]!.blanks = [
+      String.raw`\(n=4\)`,
+      String.raw`\(10\)`,
+    ];
+  }
   if (scenario === 'long') {
     const samples = s.preparations.t1!.snapshot!.questions;
     s.preparations.t1!.snapshot!.questions = Array.from(

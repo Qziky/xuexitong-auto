@@ -118,6 +118,7 @@ export type OffscreenJob =
       op: 'solve';
       priority?: number;
       provider: ProviderConfig;
+      imageProvider?: ProviderConfig;
       questions: import('./domain').QuestionRecord[];
       policy: import('./domain').DraftPolicy;
     }

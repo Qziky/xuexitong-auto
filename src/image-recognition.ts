@@ -30,6 +30,11 @@ import {
   retryAfterTime,
 } from './platform-access';
 import type { ProgressSink } from './progress';
+import { formulaImageContext, formulaText } from './formula-content';
+import { imageMaterials } from './image-materials';
+import { confirmedInlineSymbol, isInlineGlyph } from './inline-symbol';
+
+type LoadedRaster = { blob: Blob; width: number; height: number };
 
 type RasterReader = (
   canvas: HTMLCanvasElement,
@@ -37,6 +42,18 @@ type RasterReader = (
   pulse?: ProgressSink,
 ) => Promise<RecognitionAttempt>;
 const MAX_BYTES = 6000000;
+function rasterContentType(bytes: Uint8Array): string | undefined {
+  const startsWith = (signature: number[]) =>
+    signature.every((value, i) => bytes[i] === value);
+  if (startsWith([137, 80, 78, 71, 13, 10, 26, 10])) return 'image/png';
+  if (startsWith([255, 216, 255])) return 'image/jpeg';
+  if (
+    startsWith([82, 73, 70, 70]) &&
+    [87, 69, 66, 80].every((value, i) => bytes[i + 8] === value)
+  )
+    return 'image/webp';
+  return undefined;
+}
 function cancelled(signal?: AbortSignal): void {
   if (signal?.aborted) throw new ProviderError('图片识别已取消', 'cancelled');
 }
@@ -46,6 +63,7 @@ export async function loadImageCanvas(
   image: QuestionImage,
   base: string,
   signal?: AbortSignal,
+  onLoaded?: (source: LoadedRaster) => void,
 ): Promise<HTMLCanvasElement> {
   cancelled(signal);
   const src = image.src;
@@ -57,6 +75,10 @@ export async function loadImageCanvas(
     )
   )
     throw new Error('图片地址缺失或不属于受支持的课程资源');
+  // Public formula images redirect from star3/origin/* to star4/*/origin.*.
+  // Their wildcard CORS response must be read without login credentials.
+  const publicCdn =
+    new URL(src, base).origin === 'https://p.ananas.chaoxing.com';
   const controller = new AbortController();
   const cancel = () => controller.abort();
   signal?.addEventListener('abort', cancel, { once: true });
@@ -65,11 +87,20 @@ export async function loadImageCanvas(
   try {
     const response = await fetch(src, {
       signal: controller.signal,
-      credentials: 'include',
+      credentials: publicCdn ? 'omit' : 'include',
       cache: 'force-cache',
-      redirect: 'error',
+      redirect: publicCdn ? 'follow' : 'error',
     });
     cancelled(signal);
+    if (
+      publicCdn &&
+      response.url &&
+      (!safePageUrl(response.url) ||
+        new URL(response.url).origin !== 'https://p.ananas.chaoxing.com')
+    ) {
+      await response.body?.cancel();
+      throw new Error('图片跳转地址不属于原课程图片来源');
+    }
     if (response.status === 429)
       throw new PlatformAccessError(
         platformBlockFor(
@@ -81,8 +112,6 @@ export async function loadImageCanvas(
     if (!response.ok) throw new Error('图片资源读取失败，请确认页面图片已加载');
     if (Number(response.headers.get('Content-Length')) > MAX_BYTES)
       throw new Error('图片超过 6 MB 大小限制');
-    const type =
-      response.headers.get('Content-Type')?.split(';')[0]?.trim() ?? '';
     const chunks: Uint8Array<ArrayBuffer>[] = [];
     let size = 0;
     if (response.body) {
@@ -107,18 +136,21 @@ export async function loadImageCanvas(
       if (bytes.length > MAX_BYTES) throw new Error('图片超过 6 MB 大小限制');
       chunks.push(bytes);
     }
-    const blob = new Blob(chunks, { type });
-    if (!/^image\/(?:png|jpeg|webp)$/.test(type)) {
-      if (/html|text/.test(type)) {
-        const block = detectVerification(
-          src,
-          new DOMParser().parseFromString(await blob.text(), 'text/html'),
-        );
-        if (block) throw new PlatformAccessError(block);
-      }
+    const blob = new Blob(chunks);
+    // The platform's /ananas/latex/p/* endpoint can label a PNG with a
+    // malformed "application/octet-stream, image/jpeg" Content-Type.
+    const type = rasterContentType(
+      new Uint8Array(await blob.slice(0, 12).arrayBuffer()),
+    );
+    if (!type) {
+      const block = detectVerification(
+        src,
+        new DOMParser().parseFromString(await blob.text(), 'text/html'),
+      );
+      if (block) throw new PlatformAccessError(block);
       throw new Error('资源不是受支持的 PNG、JPEG 或 WebP 图片');
     }
-    bitmap = await createImageBitmap(blob);
+    bitmap = await createImageBitmap(blob.slice(0, blob.size, type));
     cancelled(signal);
     if (
       !bitmap.width ||
@@ -128,6 +160,11 @@ export async function loadImageCanvas(
       bitmap.width * bitmap.height > 16000000
     )
       throw new Error('图片尺寸为空或超过 1600 万像素限制');
+    onLoaded?.({
+      blob: blob.slice(0, blob.size, type),
+      width: bitmap.width,
+      height: bitmap.height,
+    });
     // Keep the complete source with padding. Enlarging tiny formula PNGs aids
     // inspection without inventing symbols or cropping superscripts/subscripts.
     const scale = Math.min(
@@ -145,6 +182,7 @@ export async function loadImageCanvas(
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(bitmap, 12, 12, canvas.width - 24, canvas.height - 24);
+    canvas.dataset.inlineGlyph = String(isInlineGlyph(canvas, bitmap));
     canvas.dataset.contentDigest = await contentDigest(
       await blob.arrayBuffer(),
     );
@@ -214,6 +252,18 @@ export async function restoreQuestionImages(
         cancelled(signal);
         active++;
         const trace = traces.get(image.id)!;
+        let source: LoadedRaster | undefined;
+        let loadAttempted = false;
+        let inlineGlyph = false;
+        const load = (cancel?: AbortSignal) => {
+          loadAttempted = true;
+          return loadImageCanvas(image, page.url, cancel, (loaded) => {
+            source = loaded;
+          }).then((canvas) => {
+            inlineGlyph = canvas.dataset.inlineGlyph === 'true';
+            return canvas;
+          });
+        };
         const progress: ProgressSink = (note, detail = {}) =>
           pulse?.(note, {
             ...detail,
@@ -227,11 +277,27 @@ export async function restoreQuestionImages(
             queued: Math.max(0, entries.length - completed - active),
           });
         try {
+          if (image.latex) {
+            trace.source = 'web';
+            trace.attempts.push({
+              engine: 'web',
+              success: true,
+              contentKind: 'formula',
+              text: formulaText(image.latex),
+              reason: '网页公式组件提供原始 LaTeX',
+            });
+            progress('已读取网页原始公式', {
+              code: 'engine-confirmed',
+              engine: 'web',
+            });
+            return;
+          }
           for (const engine of engines) {
             cancelled(signal);
             if (
               trace.source ||
-              trace.attempts.some((a) => a.contentKind === 'unsupported')
+              (trace.attempts.some((a) => a.contentKind === 'unsupported') &&
+                !(engine === 'ocr' && inlineGlyph))
             )
               break;
             let attempt: RecognitionAttempt;
@@ -245,6 +311,7 @@ export async function restoreQuestionImages(
                         {
                           id: image.id,
                           originalImage: true,
+                          context: formulaImageContext(question, image),
                           questionNumber: question.number,
                           part: image.optionId
                             ? '选项图片 ' + image.optionId
@@ -254,11 +321,7 @@ export async function restoreQuestionImages(
                               code: 'image-loading',
                               engine,
                             });
-                            const canvas = await loadImageCanvas(
-                              image,
-                              page.url,
-                              renderSignal ?? signal,
-                            );
+                            const canvas = await load(renderSignal ?? signal);
                             try {
                               const tag =
                                 (page.accountId ?? '') +
@@ -274,7 +337,8 @@ export async function restoreQuestionImages(
                                   provider: providerKey,
                                   strategy,
                                   validate: settings.validateOcr,
-                                  version: 5,
+                                  context: formulaImageContext(question, image),
+                                  version: 7,
                                 }),
                               );
                               const cached = recognitionCache.get(cacheKey);
@@ -321,9 +385,26 @@ export async function restoreQuestionImages(
                 );
                 let canvas: HTMLCanvasElement | undefined;
                 try {
-                  canvas = await loadImageCanvas(image, page.url, signal);
+                  canvas = await load(signal);
                   attempt = await raster(canvas, signal, progress);
-                  if (attempt.success && !knownText)
+                  const symbol = confirmedInlineSymbol(
+                    attempt,
+                    inlineGlyph,
+                    trace.attempts,
+                  );
+                  if (symbol)
+                    attempt = {
+                      ...attempt,
+                      text: formulaText(symbol),
+                      contentKind: 'formula',
+                      reason: '独立行内字符经两次高置信度 OCR 一致确认',
+                    };
+                  else if (
+                    attempt.success &&
+                    (!knownText ||
+                      (inlineGlyph &&
+                        /^[a-z0-9]$/i.test(attempt.text?.trim() ?? '')))
+                  )
                     attempt = {
                       ...attempt,
                       success: false,
@@ -352,6 +433,45 @@ export async function restoreQuestionImages(
                 engine,
               },
             );
+          }
+          if (!trace.source && strategy !== 'manual') {
+            try {
+              if (!loadAttempted) {
+                const canvas = await load(signal);
+                canvas.width = canvas.height = 0;
+              }
+              cancelled(signal);
+              if (source) {
+                image.material = await imageMaterials.save(
+                  source.blob,
+                  page,
+                  image,
+                  source,
+                );
+                cancelled(signal);
+                trace.source = 'image';
+                trace.attempts.push({
+                  engine: 'image',
+                  success: true,
+                  contentKind: 'image',
+                  text: image.placeholder,
+                  reason: '原图已保存在本机，生成参考时结合文字和原图作答',
+                });
+                progress('原图材料已保存，可结合文字作答', {
+                  code: 'image-material-saved',
+                  engine: 'image',
+                });
+              }
+            } catch (error) {
+              if (error instanceof PlatformAccessError) throw error;
+              cancelled(signal);
+              trace.attempts.push({
+                engine: 'image',
+                success: false,
+                reason:
+                  error instanceof Error ? error.message : '保存原图材料失败',
+              });
+            }
           }
         } catch (error) {
           if (error instanceof PlatformAccessError) throw error;
@@ -408,6 +528,7 @@ export async function restoreQuestionImages(
           if (best?.text)
             preview = preview.replace(image.placeholder, best.text);
           if (
+            !imageTrace.source &&
             imageTrace.attempts.some(
               (attempt) => attempt.contentKind === 'unsupported',
             )
@@ -437,21 +558,22 @@ export async function restoreQuestionImages(
         const lastEngine =
           images.flatMap((image) => traces.get(image.id)!.attempts).at(-1)
             ?.engine ?? 'web';
+        const imageSource = images.some(
+          (image) => traces.get(image.id)!.source === 'image',
+        )
+          ? 'image'
+          : images.some((image) => traces.get(image.id)!.source === 'vision')
+            ? 'vision'
+            : images.every((image) => traces.get(image.id)!.source === 'web')
+              ? 'web'
+              : 'ocr';
         trace.attempts.push({
-          engine: confirmed
-            ? images.some((image) => traces.get(image.id)!.source === 'vision')
-              ? 'vision'
-              : 'ocr'
-            : lastEngine,
+          engine: confirmed ? imageSource : lastEngine,
           success: confirmed,
           text: confirmed ? merged : preview,
           ...(confirmed ? {} : { reason }),
         });
-        trace.source = confirmed
-          ? images.some((image) => traces.get(image.id)!.source === 'vision')
-            ? 'vision'
-            : 'ocr'
-          : undefined;
+        trace.source = confirmed ? imageSource : undefined;
         if (optionId === undefined) question.stem = merged;
         else question.options.find((o) => o.id === optionId)!.text = merged;
         if (!confirmed)

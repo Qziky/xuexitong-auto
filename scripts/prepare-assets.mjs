@@ -11,6 +11,11 @@ import { deflateSync } from 'node:zlib';
 
 const root = resolve(import.meta.dirname, '..');
 const ocr = resolve(root, 'public/ocr');
+await mkdir(resolve(root, 'public/licenses'), { recursive: true });
+await copyFile(
+  resolve(root, 'node_modules/katex/LICENSE'),
+  resolve(root, 'public/licenses/KaTeX.txt'),
+);
 await mkdir(resolve(ocr, 'core'), { recursive: true });
 await mkdir(resolve(ocr, 'lang'), { recursive: true });
 const copied = [];

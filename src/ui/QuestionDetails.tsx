@@ -13,8 +13,10 @@ import {
   type QuestionExportOptions,
 } from '../question-export';
 import { existingProposal } from '../answers';
-import { requiresTextRecognition } from '../image-content';
+import { requiresTextRecognition, answerImages } from '../image-content';
 import { RecognitionDetails, RecognitionSource } from './RecognitionDetails';
+import { MathText } from './MathText';
+import { QuestionImages } from './QuestionImages';
 export type QuestionFilter = 'all' | 'review' | 'different';
 const scrollPositions = new Map<string, number>();
 const savedViews = new Map<
@@ -59,13 +61,25 @@ export const QuestionCard = memo(function QuestionCard({
         <span>{QUESTION_TYPE_LABEL[q.type]}</span>
         <RecognitionSource trace={q.recognition?.stem} />
       </div>
-      <small>{pendingText ? '未确认文字预览' : '已确认文字'}</small>
-      <p className="question-stem">{q.stem}</p>
+      <small>
+        {pendingText
+          ? '未确认文字预览'
+          : answerImages(q).length
+            ? '文字与原图材料已准备'
+            : '已确认文字'}
+      </small>
+      <p className="question-stem">
+        <MathText text={q.stem} />
+      </p>
+      <QuestionImages question={q} />
       <ul className="question-options">
         {q.options.map((o) => (
           <li key={o.id}>
             <span>{o.label}</span>
-            {o.text}
+            <div className="question-option-content">
+              <MathText text={o.text} />
+              <QuestionImages question={q} optionId={o.id} />
+            </div>
           </li>
         ))}
       </ul>
@@ -76,19 +90,25 @@ export const QuestionCard = memo(function QuestionCard({
       ))}
       <dl className="answer-comparison">
         <dt>我的答案</dt>
-        <dd>{answerText(q, existingProposal(q))}</dd>
+        <dd>
+          <MathText text={answerText(q, existingProposal(q))} />
+        </dd>
         <dt>模型参考</dt>
         <dd>
-          {reference?.source === 'own'
-            ? '尚未生成参考'
-            : answerText(q, reference)}
+          <MathText
+            text={
+              reference?.source === 'own'
+                ? '尚未生成参考'
+                : answerText(q, reference)
+            }
+          />
           {reference?.needsReview && <span className="tag warn">需检查</span>}
         </dd>
         {q.publishedAnswer && (
           <>
             <dt>平台公布</dt>
             <dd>
-              {answerText(q, q.publishedAnswer)}
+              <MathText text={answerText(q, q.publishedAnswer)} />
               <span
                 className={
                   'tag ' +
@@ -109,7 +129,9 @@ export const QuestionCard = memo(function QuestionCard({
       {reference?.explanation && (
         <details>
           <summary>查看参考解析</summary>
-          <p>{reference.explanation}</p>
+          <p>
+            <MathText text={reference.explanation} />
+          </p>
         </details>
       )}
       <RecognitionDetails question={q} />
