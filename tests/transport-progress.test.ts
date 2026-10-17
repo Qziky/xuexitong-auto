@@ -21,6 +21,7 @@ import {
   offscreen,
   jobHeartbeat,
   finishJob,
+  requestImageResource,
 } from '../src/background/transport';
 let jobId = '';
 beforeEach(() => {
@@ -29,6 +30,12 @@ beforeEach(() => {
   jobId = '';
   mock.store.state = initialState();
   vi.stubGlobal('chrome', {
+    tabs: {
+      sendMessage: vi.fn(async () => ({
+        ok: true,
+        value: 'data:image/png;base64,iVBORw0KGgo=',
+      })),
+    },
     offscreen: { hasDocument: vi.fn(async () => true) },
     runtime: {
       sendMessage: vi.fn(async (m) => {
@@ -47,6 +54,103 @@ async function dispatched() {
   expect(jobId).toBeTruthy();
 }
 describe('真实后台传输的心跳与迟到消息', () => {
+  it('原图请求只能读取活跃作业绑定的题图，并锁定原文档', async () => {
+    mock.store.state.accountId = 'cx:1';
+    const job = offscreen({
+      op: 'restore',
+      page: {
+        accountId: 'cx:1',
+        taskKey: 'task',
+        fingerprint: 'page',
+        questions: [
+          {
+            images: [
+              {
+                id: 'image',
+                resourceKey: 'resource',
+                src: 'https://p.cldisk.com/star3/origin/formula.png',
+              },
+            ],
+          },
+        ],
+      } as any,
+      recognition: {} as any,
+      visionProvider: {} as any,
+      sourceFrame: { tabId: 1, frameId: 3, documentId: 'original' },
+    });
+    await dispatched();
+    await expect(requestImageResource(jobId, 'image', 'other')).rejects.toThrow(
+      '失效',
+    );
+    expect(chrome.tabs.sendMessage).not.toHaveBeenCalled();
+    expect(await requestImageResource(jobId, 'image', 'resource')).toContain(
+      'data:image/png',
+    );
+    expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      1,
+      {
+        target: 'content',
+        command: {
+          op: 'image-resource',
+          imageId: 'image',
+          resourceKey: 'resource',
+          binding: { accountId: 'cx:1', taskKey: 'task', fingerprint: 'page' },
+        },
+      },
+      { documentId: 'original' },
+    );
+    finishJob(jobId, { ok: true, value: true });
+    await job;
+    await expect(
+      requestImageResource(jobId, 'image', 'resource'),
+    ).rejects.toThrow('失效');
+    expect(chrome.tabs.sendMessage).toHaveBeenCalledOnce();
+  });
+  it('取消作业后丢弃已经在课程页面读取的迟到图片', async () => {
+    mock.store.state.accountId = 'cx:1';
+    const controller = new AbortController();
+    const job = offscreen(
+      {
+        op: 'restore',
+        page: {
+          accountId: 'cx:1',
+          taskKey: 'task',
+          fingerprint: 'page',
+          questions: [
+            {
+              images: [
+                {
+                  id: 'image',
+                  resourceKey: 'resource',
+                  src: 'https://p.cldisk.com/star3/origin/formula.png',
+                },
+              ],
+            },
+          ],
+        } as any,
+        recognition: {} as any,
+        visionProvider: {} as any,
+        sourceFrame: { tabId: 1, frameId: 3 },
+      },
+      controller.signal,
+    );
+    const result = job.catch((error) => error.message);
+    await dispatched();
+    let resolve!: (value: any) => void;
+    vi.mocked(chrome.tabs.sendMessage).mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    const image = requestImageResource(jobId, 'image', 'resource').catch(
+      (error) => error.message,
+    );
+    controller.abort();
+    resolve({ ok: true, value: 'late' });
+    expect(await result).toContain('取消');
+    expect(await image).toContain('取消');
+  });
   it('活跃心跳维持长请求，不把心跳写入步骤日志', async () => {
     const job = offscreen(
       { op: 'test', provider: {} as any },

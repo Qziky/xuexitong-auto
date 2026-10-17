@@ -6,6 +6,7 @@ import {
 } from '../src/domain';
 import { classifyTaskPage, taskIdentifiers } from '../src/task-context';
 import { existingAnswersDigest, preparationMatches } from '../src/preparation';
+import { invalidateCandidates } from '../src/cache-invalidation';
 const mock = vi.hoisted(() => ({
   store: {
     state: undefined as any,
@@ -18,6 +19,10 @@ const mock = vi.hoisted(() => ({
   offscreen: vi.fn(),
   page: undefined as any,
   ref: undefined as any,
+  materialRead: vi.fn(),
+}));
+vi.mock('../src/image-materials', () => ({
+  imageMaterials: { read: mock.materialRead },
 }));
 vi.mock('../src/background/store', () => mock.store);
 vi.mock('../src/background/transport', () => ({
@@ -48,6 +53,7 @@ function answers() {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  mock.materialRead.mockResolvedValue(new Blob(['fixture']));
   ownedTabs.clear();
   releasePreparationPriority();
   mock.store.state = initialState();
@@ -133,21 +139,42 @@ describe('当前页面只生成候选答案', () => {
       const id = 'cx:1:100:200:quiz:900';
       const task = mock.store.state.tasks.find((t: any) => t.id === id);
       const old = {
-        id: 'old', task, tabId: 1, frameId: 3, taskKey: mock.page.taskKey,
-        at: 1, capabilities: { analyze: true, fill: true, save: true, submit: true },
+        id: 'old',
+        task,
+        tabId: 1,
+        frameId: 3,
+        taskKey: mock.page.taskKey,
+        at: 1,
+        capabilities: { analyze: true, fill: true, save: true, submit: true },
       };
-      mock.store.state.workspaces = { old, current: { ...old, id: 'current', tabId: 2, frameId: 7 } };
-      mock.store.state.currentPage = { kind: 'question', tabId: 2, workspaceId: 'current' };
+      mock.store.state.workspaces = {
+        old,
+        current: { ...old, id: 'current', tabId: 2, frameId: 7 },
+      };
+      mock.store.state.currentPage = {
+        kind: 'question',
+        tabId: 2,
+        workspaceId: 'current',
+      };
       mock.discoverFrames.mockClear();
       mock.discoverFrames.mockImplementation(async (tabId: number) => [
         { ...mock.ref, tabId, frameId: tabId === 2 ? 7 : 3 },
       ]);
       await prepareTask(id, mode);
       expect(mock.discoverFrames).toHaveBeenCalledWith(2);
-      expect(mock.store.state.preparations[id]).toMatchObject({ tabId: 2, frameId: 7 });
-      expect(mock.frameCall.mock.calls.every(([, command]) => command.op === 'extract')).toBe(true);
+      expect(mock.store.state.preparations[id]).toMatchObject({
+        tabId: 2,
+        frameId: 7,
+      });
+      expect(
+        mock.frameCall.mock.calls.every(
+          ([, command]) => command.op === 'extract',
+        ),
+      ).toBe(true);
       if (mode === 'full')
-        expect(mock.offscreen.mock.calls.filter(([job]) => job.op === 'solve')).toHaveLength(1);
+        expect(
+          mock.offscreen.mock.calls.filter(([job]) => job.op === 'solve'),
+        ).toHaveLength(1);
     },
   );
   it('文字还原任务携带识别设置和实际独立视觉配置', async () => {
@@ -167,6 +194,10 @@ describe('当前页面只生成候选答案', () => {
     )![0];
     expect(job.recognition).toEqual(mock.store.state.recognition);
     expect(job.visionProvider.model).toBe('independent-vision');
+    expect(job.sourceFrame).toMatchObject({
+      tabId: mock.ref.tabId,
+      frameId: mock.ref.frameId,
+    });
     expect(
       mock.offscreen.mock.calls.find(([job]) => job.op === 'solve')![0].provider
         .model,
@@ -212,6 +243,185 @@ describe('当前页面只生成候选答案', () => {
     ).toBe(true);
     expect(mock.page.questions[0].existing).toEqual([]);
   });
+  it.each([false, true])(
+    '图片失败后再次生成会重读失败题目，同时保留成功文字（设置变化：%s）',
+    async (changeSettings) => {
+      mock.page.questions[0].stem = '极限〔图片1〕';
+      mock.page.questions[0].images = [
+        {
+          id: 'q1:image1',
+          part: 'stem',
+          placeholder: '〔图片1〕',
+          resourceKey: 'formula',
+          src: 'https://p.cldisk.com/formula.png',
+        },
+      ];
+      mock.page.questions.push({
+        ...structuredClone(mock.page.questions[0]),
+        id: 'q2',
+        number: 2,
+        stem: '网页原文',
+        images: [],
+        options: mock.page.questions[0].options.map((o: any) => ({
+          ...o,
+          id: o.id.replace('q1', 'q2'),
+        })),
+      });
+      let reads = 0;
+      mock.offscreen.mockImplementation(async (job) => {
+        if (job.op === 'restore') {
+          reads++;
+          const page = structuredClone(job.page);
+          for (const q of page.questions) {
+            if (q.id === 'q1' && reads === 1) {
+              q.issues = ['图片地址缺失或不属于受支持的课程资源'];
+              delete q.images[0].src;
+            } else {
+              q.stem = q.id === 'q1' ? '已确认公式' : '本机已确认文字';
+              q.issues = [];
+              q.recognition = {
+                stem: { source: 'manual', attempts: [] },
+                options: Object.fromEntries(
+                  q.options.map((o: any) => [
+                    o.id,
+                    { source: 'web', attempts: [] },
+                  ]),
+                ),
+              };
+            }
+          }
+          return page;
+        }
+        if (job.op === 'solve')
+          return job.questions.map((q: any) => ({
+            questionId: q.id,
+            optionIds: [q.options[0].id],
+            explanation: '参考',
+            needsReview: false,
+          }));
+        throw new Error('不应调用其他操作');
+      });
+      await prepareActiveTask();
+      const id = 'cx:1:100:200:quiz:900';
+      expect(mock.store.state.preparations[id].phase).toBe('review');
+      if (changeSettings) invalidateCandidates(mock.store.state, () => false);
+      await prepareActiveTask();
+      const jobs = mock.offscreen.mock.calls.filter(
+        ([job]) => job.op === 'restore',
+      );
+      expect(jobs).toHaveLength(2);
+      expect(jobs[1]![0].page.questions.map((q: any) => q.id)).toEqual(['q1']);
+      expect(jobs[1]![0].page.questions[0].images[0].src).toBe(
+        'https://p.cldisk.com/formula.png',
+      );
+      expect(
+        mock.store.state.preparations[id].snapshot.questions.map(
+          (q: any) => q.stem,
+        ),
+      ).toEqual(['已确认公式', '本机已确认文字']);
+      expect(mock.store.state.preparations[id].phase).toBe('ready');
+      expect(
+        mock.frameCall.mock.calls.every(
+          ([, command]) => command.op === 'extract',
+        ),
+      ).toBe(true);
+    },
+  );
+  it('模型请求失败的空候选不会挡住下次重试，已确认文字继续复用', async () => {
+    let solves = 0;
+    mock.offscreen.mockImplementation(async (job) => {
+      if (job.op === 'restore') return structuredClone(job.page);
+      if (++solves === 1) throw new Error('模型请求超时');
+      return answers();
+    });
+    await prepareActiveTask();
+    expect(mock.store.state.preparations['cx:1:100:200:quiz:900'].phase).toBe(
+      'review',
+    );
+    await prepareActiveTask();
+    expect(solves).toBe(2);
+    expect(
+      mock.offscreen.mock.calls.filter(([job]) => job.op === 'restore'),
+    ).toHaveLength(1);
+    expect(mock.store.state.preparations['cx:1:100:200:quiz:900'].phase).toBe(
+      'ready',
+    );
+  });
+  it('完整但标记待人工核对的候选仍可复用，不把所有 review 状态都当成失败', async () => {
+    mock.offscreen.mockImplementation(async (job) =>
+      job.op === 'restore'
+        ? structuredClone(job.page)
+        : answers().map((proposal) => ({ ...proposal, needsReview: true })),
+    );
+    await prepareActiveTask();
+    await prepareActiveTask();
+    expect(
+      mock.offscreen.mock.calls.filter(([job]) => job.op === 'solve'),
+    ).toHaveLength(1);
+    expect(mock.store.state.preparations['cx:1:100:200:quiz:900'].phase).toBe(
+      'review',
+    );
+  });
+  it.each(['full', 'decode'] as const)(
+    '原图被淘汰后 %s 会从当前页面重新读取，不复用只有引用的旧结果',
+    async (mode) => {
+      mock.page.questions[0].stem = '题目〔图片1〕';
+      mock.page.questions[0].images = [
+        {
+          id: 'q1:image1',
+          part: 'stem',
+          placeholder: '〔图片1〕',
+          resourceKey: 'formula',
+          src: 'https://p.cldisk.com/formula.png',
+        },
+      ];
+      let reads = 0;
+      mock.offscreen.mockImplementation(async (job) => {
+        if (job.op === 'restore') {
+          const page = structuredClone(job.page);
+          const question = page.questions[0];
+          question.recognition = {
+            stem: { source: 'image', attempts: [] },
+            options: Object.fromEntries(
+              question.options.map((o: any) => [
+                o.id,
+                { source: 'web', attempts: [] },
+              ]),
+            ),
+          };
+          question.images[0].material = {
+            id: 'material-' + ++reads,
+            digest: 'digest',
+            accountId: page.accountId,
+            taskKey: page.taskKey,
+            fingerprint: page.fingerprint,
+            imageId: 'q1:image1',
+            mimeType: 'image/png',
+            byteLength: 7,
+            width: 1,
+            height: 1,
+          };
+          delete question.images[0].src;
+          return page;
+        }
+        return answers();
+      });
+      await prepareActiveTask();
+      mock.materialRead.mockRejectedValue(new Error('原图材料已失效'));
+      await prepareActiveTask(mode);
+      const jobs = mock.offscreen.mock.calls.filter(
+        ([job]) => job.op === 'restore',
+      );
+      expect(jobs).toHaveLength(2);
+      expect(jobs[1]![0].page.questions[0].images[0].src).toBe(
+        'https://p.cldisk.com/formula.png',
+      );
+      expect(
+        mock.store.state.preparations['cx:1:100:200:quiz:900'].snapshot
+          .questions[0].images[0].material.id,
+      ).toBe('material-2');
+    },
+  );
   it('显式点击目标任务的生成入口后才打开所选题目并求解，不触碰提交动作', async () => {
     const id = 'cx:1:100:200:quiz:900';
     mock.store.state.tasks = [

@@ -1,5 +1,5 @@
-export const TEXT_PROCESSING_VERSION = 9;
-export const PAGE_TEXT_PROCESSING_VERSION = 12;
+export const TEXT_PROCESSING_VERSION = 10;
+export const PAGE_TEXT_PROCESSING_VERSION = 14;
 export type TaskType = 'video' | 'quiz' | 'homework';
 export type TaskStatus =
   'pending' | 'submitted' | 'complete' | 'unknown' | 'review' | 'expired';

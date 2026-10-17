@@ -9,6 +9,7 @@ import type {
 import { TEXT_PROCESSING_VERSION } from '../domain';
 import { completeAnswer, existingProposal, needsSolve } from '../answers';
 import { existingAnswersDigest, preparationMatches } from '../preparation';
+import { reusableQuestionIds } from '../preparation-cache';
 import { mergeTaskRecords } from '../scan-cache';
 import { state, provider, persist, effectiveVisionProvider } from './store';
 import {
@@ -82,13 +83,22 @@ export async function yieldPreparation(): Promise<void> {
 export function releasePreparationPriority(): void {
   executionPriority = false;
 }
-export function reusablePreparation(
+export async function reusablePreparation(
   page: PageSnapshot,
   task: TaskRecord,
   policy: DraftPolicy,
-): TaskPreparation | undefined {
+  signal?: AbortSignal,
+): Promise<TaskPreparation | undefined> {
   const record = state.preparations[task.id];
-  return preparationMatches(record, page, task, policy, state.providerRevision)
+  if (!preparationMatches(record, page, task, policy, state.providerRevision))
+    return undefined;
+  const snapshot = record.snapshot!;
+  const available = await reusableQuestionIds(snapshot, signal);
+  return state.accountId === task.accountId &&
+    state.preparations[task.id] === record &&
+    record.snapshot === snapshot &&
+    available.size === snapshot.questions.length &&
+    preparationMatches(record, page, task, policy, state.providerRevision)
     ? record
     : undefined;
 }
@@ -103,6 +113,7 @@ export async function decodePage(
   progress: PreparationProgress,
   runId?: string,
   forceQuestionIds?: string[],
+  sourceFrame?: Pick<FrameRef, 'tabId' | 'frameId' | 'documentId'>,
 ): Promise<PageSnapshot> {
   await progress('正在还原题目文字', { stage: 'restoring' });
   const page = await offscreen<PageSnapshot>(
@@ -112,6 +123,13 @@ export async function decodePage(
       recognition: structuredClone(state.recognition),
       visionProvider: effectiveVisionProvider(),
       forceQuestionIds,
+      sourceFrame: sourceFrame
+        ? {
+            tabId: sourceFrame.tabId,
+            frameId: sourceFrame.frameId,
+            documentId: sourceFrame.documentId,
+          }
+        : undefined,
     },
     signal,
     runId,
@@ -153,8 +171,16 @@ export async function generateCandidateAnswers(
   signal: AbortSignal,
   progress: PreparationProgress,
   runId?: string,
+  sourceFrame?: Pick<FrameRef, 'tabId' | 'frameId' | 'documentId'>,
 ): Promise<CandidateAnswers> {
-  const page = await decodePage(raw, signal, progress, runId);
+  const page = await decodePage(
+    raw,
+    signal,
+    progress,
+    runId,
+    undefined,
+    sourceFrame,
+  );
   return solveDecodedPage(page, policy, signal, progress, runId);
 }
 export async function solveDecodedPage(
@@ -529,9 +555,14 @@ export async function prepareQuestion(
       ...raw,
       questions: [structuredClone(rawQuestion)],
     };
-    const decoded = await decodePage(oneQuestion, signal, progress, runId, [
-      questionId,
-    ]);
+    const decoded = await decodePage(
+      oneQuestion,
+      signal,
+      progress,
+      runId,
+      [questionId],
+      ref,
+    );
     assertPlatformReady();
     if (signal.aborted) throw new Error('操作已取消');
     const current = await frameCall<PageSnapshot | undefined>(ref, {
@@ -729,7 +760,7 @@ async function prepare(
     }
     const cached =
       mode === 'full'
-        ? reusablePreparation(raw, task, state.draftPolicy)
+        ? await reusablePreparation(raw, task, state.draftPolicy, signal)
         : undefined;
     if (cached) {
       // The content is reusable; its old tab binding is not. Extraction above
@@ -751,6 +782,9 @@ async function prepare(
       previous.accountId === raw.accountId &&
       previous.taskKey === raw.taskKey &&
       previous.workflowVersion === TEXT_PROCESSING_VERSION;
+    const available = sameContent
+      ? await reusableQuestionIds(previous!.snapshot!, signal)
+      : new Set<string>();
     const reusableDecoded =
       previous?.decoded &&
       previous.snapshot &&
@@ -760,7 +794,13 @@ async function prepare(
       previous.fingerprint === raw.fingerprint &&
       previous.existingDigest === existingAnswersDigest(raw) &&
       previous.providerRevision === state.providerRevision &&
-      previous.policy === state.draftPolicy;
+      previous.policy === state.draftPolicy &&
+      previous.snapshot.questions
+        .filter(
+          (question) =>
+            !question.issues.length && question.type !== 'unsupported',
+        )
+        .every((question) => available.has(question.id));
     if (mode === 'solve' && !reusableDecoded)
       throw new Error('请先完成解密；页面、已有答案或设置变化后需重新解密');
     record = {
@@ -839,14 +879,15 @@ async function prepare(
     let page = mode === 'solve' ? structuredClone(previous!.snapshot!) : raw;
     if (mode !== 'solve') {
       const retained = new Set(
-        sameContent
+        (sameContent
           ? (previous!.retainedQuestionIds ??
-              (previous!.recognitionRevision === state.recognitionRevision
-                ? previous!
-                    .snapshot!.questions.filter((q) => !q.issues.length)
-                    .map((q) => q.id)
-                : []))
-          : [],
+            (previous!.recognitionRevision === state.recognitionRevision
+              ? previous!
+                  .snapshot!.questions.filter((q) => !q.issues.length)
+                  .map((q) => q.id)
+              : []))
+          : []
+        ).filter((id) => available.has(id)),
       );
       const needed = raw.questions.filter((q) => !retained.has(q.id));
       const restored = needed.length
@@ -855,6 +896,8 @@ async function prepare(
             signal,
             progress,
             runId,
+            undefined,
+            ref,
           )
         : undefined;
       page = {

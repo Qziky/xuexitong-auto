@@ -682,7 +682,12 @@ async function runTask(
   };
   const raw = page;
   const providerRevision = state.providerRevision;
-  const cached = reusablePreparation(raw, task, state.queue.policy);
+  const cached = await reusablePreparation(
+    raw,
+    task,
+    state.queue.policy,
+    signal,
+  );
   if (cached)
     operationEvent(item.runId, '复用已生成并核对的候选答案', {
       code: 'candidate-cache',
@@ -703,6 +708,7 @@ async function runTask(
           (note, detail) =>
             stage(item, detail?.stage ?? 'solving', note, detail),
           item.runId,
+          ref,
         );
   } finally {
     recognizingFrame = undefined;

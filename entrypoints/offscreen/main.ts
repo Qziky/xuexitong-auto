@@ -4,6 +4,7 @@ import { chat, solveBatch } from '../../src/provider';
 import { PlatformReader } from '../../src/platform-reader';
 import { PlatformAccessError } from '../../src/platform-access';
 import type { OffscreenJob } from '../../src/messages';
+import { loadImageBlob } from '../../src/image-loader';
 import { readPageStatus, extractPage } from '../../src/page-parser';
 import type { ProgressSink } from '../../src/progress';
 import { parseLearningCards } from '../../src/learning-parser';
@@ -53,6 +54,30 @@ async function run(
         job.recognition,
         job.visionProvider,
         job.forceQuestionIds,
+        job.sourceFrame
+          ? async (image, cancel) => {
+              const response = await chrome.runtime.sendMessage({
+                target: 'background',
+                kind: 'image-resource',
+                id: jobId,
+                imageId: image.id,
+                resourceKey: image.resourceKey,
+              });
+              if (response?.block)
+                throw new PlatformAccessError(response.block);
+              if (!response?.ok)
+                throw new Error(response?.error || '课程原图读取失败');
+              const src = response.value;
+              if (
+                !/^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(
+                  src,
+                ) ||
+                src.length > 8000000
+              )
+                throw new Error('课程页面返回的原图数据无效或过大');
+              return loadImageBlob({ ...image, src }, job.page.url, cancel);
+            }
+          : undefined,
       );
     case 'status':
       return readPageStatus(inertDocument(job.html), job.url);

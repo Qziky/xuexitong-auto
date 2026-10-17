@@ -51,7 +51,7 @@
 
 ## 文档
 
-- [0.6.0 升级说明](docs/upgrade-0.6.0.md)
+- [0.6.2 升级说明](docs/upgrade-0.6.2.md)
 - [验收说明](docs/acceptance.md)
 - [自动调试说明](docs/debugging.md)
 - [贡献指南](CONTRIBUTING.md)

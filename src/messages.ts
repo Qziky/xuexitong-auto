@@ -38,6 +38,12 @@ export type FrameCommand =
   | { op: 'catalog-menu' }
   | { op: 'catalog-open'; id: string; fingerprint: string }
   | { op: 'extract' }
+  | {
+      op: 'image-resource';
+      binding: Binding;
+      imageId: string;
+      resourceKey: string;
+    }
   | { op: 'fill'; binding: Binding; proposals: AnswerProposal[] }
   | { op: 'draft'; binding: Binding }
   | { op: 'submit'; binding: Binding }
@@ -111,6 +117,7 @@ export type OffscreenJob =
       recognition: RecognitionSettings;
       visionProvider: ProviderConfig;
       forceQuestionIds?: string[];
+      sourceFrame?: { tabId: number; frameId: number; documentId?: string };
     }
   | { op: 'status'; html: string; url: string }
   | { op: 'draft-snapshot'; html: string; url: string }

@@ -1,5 +1,5 @@
 import type { PageSnapshot, QuestionImage, QuestionRecord } from './domain';
-import { hashText, safePageUrl } from './security';
+import { hashText, safeQuestionImageUrl } from './security';
 import { pageFormula } from './formula-content';
 
 /** Replace images in a cloned text region, preserving their DOM order. */
@@ -13,14 +13,31 @@ export function extractImageContent(
 ): void {
   for (const node of region?.querySelectorAll('img') ?? []) {
     const index = images.length + 1;
-    const raw = node.getAttribute('src') ?? '';
+    // Offscreen questions may still display a loading placeholder. Read their
+    // original address without scrolling or activating the page's lazy loader.
+    const sources = [
+      'data-original',
+      'data-src',
+      'data-lazy-src',
+      '_src',
+      'src',
+      'data-cx-src',
+    ]
+      .map((attribute) => node.getAttribute(attribute)?.trim())
+      .filter((raw): raw is string => Boolean(raw));
     const latex = pageFormula(node);
-    const src =
-      safePageUrl(raw, base) ??
-      (/^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(raw) &&
-      raw.length < 8000000
-        ? raw
-        : undefined);
+    const src = sources
+      .map(
+        (raw) =>
+          safeQuestionImageUrl(raw, base) ??
+          (/^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(raw) &&
+          raw.length < 8000000
+            ? raw
+            : undefined),
+      )
+      .find((value) => value !== undefined);
+    // The same resource must retain its identity before and after lazy loading.
+    const raw = src ?? sources[0] ?? '';
     const placeholder = `〔图片${index}〕`;
     images.push({
       id: `q${questionId}:image${index}`,

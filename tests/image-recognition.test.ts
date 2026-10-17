@@ -17,6 +17,7 @@ import { inertDocument } from '../src/scan-parser';
 import { recognitionDefaults } from '../src/recognition-settings';
 import { PlatformAccessError } from '../src/platform-access';
 import { stripImageResources } from '../src/image-content';
+import { restoreSnapshot } from '../src/ocr';
 
 const mock = vi.hoisted(() => ({ transcribe: vi.fn() }));
 vi.mock('../src/vision', () => ({ transcribeSegments: mock.transcribe }));
@@ -72,6 +73,31 @@ async function restore(
     raster,
     signal,
   );
+}
+function longImageDocument(attribute = 'data-original', inert = false) {
+  const html = Array.from({ length: 33 }, (_, index) => {
+    const number = index + 1;
+    const image = (part: string) => {
+      const source = `/math/q${number}-${part}.png`;
+      return number <= 3
+        ? `<img src="${source}">`
+        : `<img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///w==" ${attribute}="${source}">`;
+    };
+    return `<div class="questionLi" id="question${1000 + number}"><h3 class="mark_name"><span class="colorShallow">单选题</span>函数${image('stem')}的定义域为：</h3>${[
+      'D',
+      'B',
+      'C',
+      'A',
+    ]
+      .map(
+        (key, option) =>
+          `<a onclick="addChoice()"><span class="num_option" data="${key}">${String.fromCharCode(65 + option)}</span><span class="answer_p">${image(`option${option + 1}`)}</span></a>`,
+      )
+      .join('')}</div>`;
+  }).join('');
+  return inert
+    ? inertDocument(html)
+    : new DOMParser().parseFromString(html, 'text/html');
 }
 beforeEach(async () => {
   vi.clearAllMocks();
@@ -497,49 +523,52 @@ describe('题目原始图片与公式识别', () => {
     expect(draw.mock.calls[0]!.slice(1)).toEqual([12, 12, 208, 116]);
     expect(close).toHaveBeenCalledOnce();
   });
-  it('旧 CDN 地址的题干和选项图片跳转后仍能转录，且不携带登录凭据', async () => {
-    const p = page();
-    const q = p.questions[0]!;
-    q.images![0]!.src = 'https://p.ananas.chaoxing.com/star3/origin/stem.png';
-    q.options = [{ id: 'o1', key: 'D', label: 'A', text: '〔图片2〕' }];
-    q.images!.push({
-      ...q.images![0]!,
-      id: 'q10:image2',
-      placeholder: '〔图片2〕',
-      part: 'option',
-      optionId: 'o1',
-      src: 'https://p.ananas.chaoxing.com/star3/origin/option.png',
-      resourceKey: 'option',
-    });
-    fetcher.mockImplementation(async (src: string, init: RequestInit) => {
-      // The CDN returns 301 from star3/origin/*.png to star4/*/origin.png.
-      // Its wildcard CORS header also rejects credentialed page requests.
-      if (init.redirect !== 'follow' || init.credentials !== 'omit')
-        throw new TypeError('Failed to fetch');
-      return Object.defineProperty(
-        new Response(PNG_BYTES, {
-          headers: { 'Content-Type': 'image/png' },
-        }),
-        'url',
-        {
-          value: src.replace(
-            /star3\/origin\/(.+)\.png$/,
-            'star4/$1/origin.png',
-          ),
-        },
-      );
-    });
-    await restore({ imageStrategy: 'vision-only' }, p);
-    expect(q.recognition?.stem.source).toBe('vision');
-    expect(q.recognition?.options.o1?.source).toBe('vision');
-    expect(q.stem).not.toContain('〔图片');
-    expect(q.options[0]!.text).not.toContain('〔图片');
-    expect(q.options[0]).toMatchObject({ key: 'D', label: 'A' });
-    expect(q.existing).toEqual(['']);
-    expect(q.issues).toEqual([]);
-    expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(close).toHaveBeenCalledTimes(2);
-  });
+  it.each(['p.ananas.chaoxing.com', 'p.cldisk.com'])(
+    '%s 的题干和选项图片跳转后仍能转录，且不携带登录凭据',
+    async (host) => {
+      const p = page();
+      const q = p.questions[0]!;
+      q.images![0]!.src = `https://${host}/star3/origin/stem.png`;
+      q.options = [{ id: 'o1', key: 'D', label: 'A', text: '〔图片2〕' }];
+      q.images!.push({
+        ...q.images![0]!,
+        id: 'q10:image2',
+        placeholder: '〔图片2〕',
+        part: 'option',
+        optionId: 'o1',
+        src: `https://${host}/star3/origin/option.png`,
+        resourceKey: 'option',
+      });
+      fetcher.mockImplementation(async (src: string, init: RequestInit) => {
+        // The CDN returns 301 from star3/origin/*.png to star4/*/origin.png.
+        // Its wildcard CORS header also rejects credentialed page requests.
+        if (init.redirect !== 'follow' || init.credentials !== 'omit')
+          throw new TypeError('Failed to fetch');
+        return Object.defineProperty(
+          new Response(PNG_BYTES, {
+            headers: { 'Content-Type': 'image/png' },
+          }),
+          'url',
+          {
+            value: src.replace(
+              /star3\/origin\/(.+)\.png$/,
+              'star4/$1/origin.png',
+            ),
+          },
+        );
+      });
+      await restore({ imageStrategy: 'vision-only' }, p);
+      expect(q.recognition?.stem.source).toBe('vision');
+      expect(q.recognition?.options.o1?.source).toBe('vision');
+      expect(q.stem).not.toContain('〔图片');
+      expect(q.options[0]!.text).not.toContain('〔图片');
+      expect(q.options[0]).toMatchObject({ key: 'D', label: 'A' });
+      expect(q.existing).toEqual(['']);
+      expect(q.issues).toEqual([]);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(close).toHaveBeenCalledTimes(2);
+    },
+  );
   it.each([
     'https://example.com/image.png',
     'http://p.ananas.chaoxing.com/image.png',
@@ -663,6 +692,190 @@ describe('题目原始图片与公式识别', () => {
 });
 
 describe('图片数据、设置与预览页', () => {
+  it('cldisk 按需使用课程页返回的原始字节，不再从识别后台重复下载', async () => {
+    const p = page();
+    p.questions[0]!.images![0]!.src =
+      'https://p.cldisk.com/star3/origin/formula.png';
+    const readSource = vi.fn(
+      async () => new Blob([PNG_BYTES], { type: 'image/png' }),
+    );
+    const result = await restoreSnapshot(
+      p,
+      '/ocr',
+      undefined,
+      undefined,
+      {
+        ...DEFAULT_RECOGNITION,
+        imageStrategy: 'vision-only',
+      },
+      undefined,
+      undefined,
+      readSource,
+    );
+    expect(readSource).toHaveBeenCalledOnce();
+    expect(fetcher).not.toHaveBeenCalled();
+    const image = result.questions[0]!.images![0]!;
+    expect(image.material).toBeDefined();
+    expect((await imageMaterials.read(image.material!)).size).toBe(
+      PNG_BYTES.length,
+    );
+    expect(result.questions[0]!.issues).toEqual([]);
+  });
+  it('真实页面中的 cldisk 题干与选项原图进入完整识别和材料保存流程', async () => {
+    const doc = new DOMParser().parseFromString(
+      '<div class="questionLi" id="question10"><h3 class="mark_name"><span class="colorShallow">单选题</span>极限<img width="93" height="49" src="https://p.cldisk.com/star3/origin/stem.png" data-original="https://p.cldisk.com/star3/origin/stem.png">（）。</h3><a onclick="addChoice()"><span class="num_option" data="D">A</span><span class="answer_p"><img width="9" height="17" src="https://p.cldisk.com/star3/origin/option.png"></span></a><a onclick="addChoice()"><span class="num_option" data="B">B</span><span class="answer_p">其他选项</span></a></div>',
+      'text/html',
+    );
+    const raw = extractPage(doc, URL)!;
+    expect(raw.questions[0]!.images!.map((image) => image.src)).toEqual([
+      'https://p.cldisk.com/star3/origin/stem.png',
+      'https://p.cldisk.com/star3/origin/option.png',
+    ]);
+    // No model is configured: both originals must still be available locally.
+    const result = await restoreSnapshot(raw, '/ocr', undefined, undefined, {
+      ...DEFAULT_RECOGNITION,
+      imageStrategy: 'vision-only',
+    });
+    const question = result.questions[0]!;
+    expect(question.issues).toEqual([]);
+    for (const image of question.images!) {
+      expect(image.src).toBeUndefined();
+      expect(image.material).toBeDefined();
+      expect((await imageMaterials.read(image.material!)).size).toBe(
+        PNG_BYTES.length,
+      );
+    }
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    for (const [, init] of fetcher.mock.calls) {
+      expect(init).toMatchObject({ credentials: 'omit', redirect: 'follow' });
+    }
+  });
+  it.each(['data-original', 'data-src', 'data-lazy-src', '_src'])(
+    '33 题的题干和选项从 %s 读取原图，不依赖滚动加载',
+    (attribute) => {
+      const doc = longImageDocument(attribute);
+      const p = extractPage(doc, URL)!;
+      expect(p.questions).toHaveLength(33);
+      for (const q of p.questions) {
+        expect(q.images?.map((image) => image.src)).toEqual(
+          ['stem', 'option1', 'option2', 'option3', 'option4'].map(
+            (part) =>
+              `https://mooc1.chaoxing.com/math/q${q.number}-${part}.png`,
+          ),
+        );
+        expect(q.options.map((option) => option.key)).toEqual([
+          'D',
+          'B',
+          'C',
+          'A',
+        ]);
+      }
+      expect(doc.querySelectorAll(`img[${attribute}]`)).toHaveLength(150);
+      expect(fetcher).not.toHaveBeenCalled();
+    },
+  );
+  it('滚动加载和相对地址转绝对地址不改变题目指纹，原图变化仍使其失效', () => {
+    const doc = longImageDocument();
+    const before = extractPage(doc, URL)!;
+    for (const image of doc.querySelectorAll('img[data-original]')) {
+      image.setAttribute(
+        'src',
+        'https://mooc1.chaoxing.com' + image.getAttribute('data-original'),
+      );
+      image.removeAttribute('data-original');
+    }
+    expect(extractPage(doc, URL)!.fingerprint).toBe(before.fingerprint);
+    doc.querySelector('#question1033 img')!.setAttribute('src', '/changed.png');
+    expect(extractPage(doc, URL)!.fingerprint).not.toBe(before.fingerprint);
+  });
+  it('静态解析保留懒加载属性，与实时页面提取的原图及指纹一致', () => {
+    const live = longImageDocument('data-src');
+    const inert = longImageDocument('data-src', true);
+    const last = inert.querySelector('#question1033 img')!;
+    expect(last.getAttribute('src')).toBeNull();
+    expect(last.getAttribute('data-src')).toBe('/math/q33-stem.png');
+    const expected = extractPage(live, URL)!;
+    const actual = extractPage(inert, URL)!;
+    expect(actual.fingerprint).toBe(expected.fingerprint);
+    expect(
+      actual.questions.flatMap((q) => q.images!.map((image) => image.src)),
+    ).toEqual(
+      expected.questions.flatMap((q) => q.images!.map((image) => image.src)),
+    );
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it.each([
+    '<img>',
+    '<img src="">',
+    '<img src="   ">',
+    '<img data-original=" " src="">',
+    '<img data-original="https://images.example/original.png" src="javascript:alert(1)">',
+    '<img data-src="http://p.ananas.chaoxing.com/original.png">',
+    '<img data-original="data:image/svg+xml;base64,AAAA">',
+  ])('缺失或不受支持的地址不会作为原图读取：%s', (html) => {
+    const p = extractPage(
+      inertDocument(
+        `<div class="questionLi" id="question10"><h3 class="mark_name">题干${html}</h3></div>`,
+      ),
+      URL,
+    )!;
+    expect(p.questions[0]!.images?.[0]?.src).toBeUndefined();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it('懒加载地址不可用时仍可读取页面上有效的原图地址', () => {
+    const p = extractPage(
+      inertDocument(
+        '<div class="questionLi" id="question10"><h3 class="mark_name">题干<img data-original="https://images.example/other.png" src="/original.png"></h3></div>',
+      ),
+      URL,
+    )!;
+    expect(p.questions[0]!.images?.[0]?.src).toBe(
+      'https://mooc1.chaoxing.com/original.png',
+    );
+  });
+  it('完整识别流程能保存长作业末尾的原图材料，无需先滚动网页', async () => {
+    mock.transcribe.mockImplementation(async (_config, segments) => {
+      const results = new Map();
+      for (const segment of segments) {
+        await segment.render();
+        results.set(segment.id, {
+          engine: 'vision',
+          success: false,
+          contentKind: 'unsupported',
+          reason: '图形需结合原图作答',
+        });
+      }
+      return results;
+    });
+    const raw = extractPage(longImageDocument(), URL)!;
+    const sources = raw.questions.flatMap((q) =>
+      q.images!.map((image) => image.src),
+    );
+    const result = await restoreSnapshot(
+      raw,
+      '/ocr',
+      undefined,
+      undefined,
+      { ...DEFAULT_RECOGNITION, imageStrategy: 'vision-only' },
+      provider,
+    );
+    expect(fetcher).toHaveBeenCalledTimes(165);
+    expect(fetcher.mock.calls.map(([source]) => source).sort()).toEqual(
+      sources.sort(),
+    );
+    for (const q of result.questions) {
+      expect(q.issues).toEqual([]);
+      for (const image of q.images!) {
+        expect(image.src).toBeUndefined();
+        expect(image.material?.imageId).toBe(image.id);
+        expect(q.recognition?.images?.[image.id]?.source).toBe('image');
+      }
+    }
+    const last = result.questions.at(-1)!.images!.at(-1)!;
+    expect((await imageMaterials.read(last.material!)).size).toBe(
+      PNG_BYTES.length,
+    );
+  });
   it('题干和选项图片按 DOM 顺序提取，不请求资源；src 清理后指纹稳定', () => {
     const doc = inertDocument(
       '<div class="questionLi" id="question10"><h3 class="mark_name"><span class="colorShallow">单选题</span>设<img src="/one.png">，则<img src="/two.png">为：</h3><a onclick="addChoice()"><span class="num_option" data="D">A</span><span class="answer_p"><img src="/three.png"></span></a><a onclick="addChoice()"><span class="num_option" data="B">B</span><span class="answer_p">普通选项</span></a></div>',

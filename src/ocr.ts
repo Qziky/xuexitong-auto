@@ -19,6 +19,7 @@ import type { VisionScope } from './vision';
 import { ProviderError } from './provider';
 import type { ProgressSink } from './progress';
 import { placeholdersPreserved, stripImageResources } from './image-content';
+import type { ImageSourceReader } from './image-loader';
 import { restoreQuestionImages } from './image-recognition';
 
 import { ResourcePool, type ResourceLease, boundedMap } from './resource-pool';
@@ -795,6 +796,7 @@ export async function restoreSnapshot(
   settings: RecognitionSettings = DEFAULT_RECOGNITION,
   visionProvider?: ProviderConfig,
   forceQuestionIds?: string[],
+  readSource?: ImageSourceReader,
 ): Promise<PageSnapshot> {
   await loadRecognitionCache();
   for (const q of raw.questions)
@@ -862,6 +864,7 @@ export async function restoreSnapshot(
       controller.signal,
       report(1),
       scope,
+      readSource,
     );
     const guarded = [textJob, imageJob].map((p) =>
       p.catch((error) => {

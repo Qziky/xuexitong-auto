@@ -25,9 +25,9 @@ export function inertDocument(html: string): Document {
     /<(?:iframe|img|video|audio|source|script|link)\b[^>]*>/gi,
     (tag) =>
       tag.replace(
-        /\b(src|srcset|srcdoc|href)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,
-        (_, attr: string, value: string) =>
-          `data-cx-${attr.toLowerCase()}=${value}`,
+        /(\s)(src|srcset|srcdoc|href)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,
+        (_, space: string, attr: string, value: string) =>
+          `${space}data-cx-${attr.toLowerCase()}=${value}`,
       ),
   );
   return new DOMParser().parseFromString(inert, 'text/html');

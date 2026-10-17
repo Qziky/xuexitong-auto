@@ -1,6 +1,7 @@
 import type { FrameCommand, FrameInfo, OffscreenJob } from '../messages';
 import type { PageSnapshot, PlatformBlock } from '../domain';
 import { isChaoxingUrl } from '../security';
+import { imageNeedsPageReferrer } from '../image-loader';
 import { log, state, persist } from './store';
 import {
   assertPlatformReady,
@@ -84,6 +85,10 @@ const pending = new Map<
     runId?: string;
     sequence: number;
     fetch?: Extract<OffscreenJob, { op: 'fetch' }>;
+    restore?: Pick<
+      Extract<OffscreenJob, { op: 'restore' }>,
+      'page' | 'sourceFrame'
+    >;
     signal?: AbortSignal;
     platformWaitUntil?: number;
   }
@@ -227,6 +232,10 @@ export async function offscreen<T>(
       runId,
       sequence: 0,
       fetch: job.op === 'fetch' ? job : undefined,
+      restore:
+        job.op === 'restore'
+          ? { page: job.page, sourceFrame: job.sourceFrame }
+          : undefined,
       signal,
     });
     signal?.addEventListener('abort', cancel, { once: true });
@@ -243,6 +252,53 @@ export async function offscreen<T>(
 }
 
 const admissions = new Map<string, AbortController>();
+/** Offscreen workers request one task-bound original at a time, never arbitrary URLs. */
+export async function requestImageResource(
+  id: string,
+  imageId: string,
+  resourceKey: string,
+): Promise<string> {
+  const entry = pending.get(id);
+  const job = entry?.restore;
+  const image = job?.page.questions
+    .flatMap((question) => question.images ?? [])
+    .find(
+      (candidate) =>
+        candidate.id === imageId && candidate.resourceKey === resourceKey,
+    );
+  if (
+    !entry ||
+    !job?.sourceFrame ||
+    entry.signal?.aborted ||
+    !job.page.accountId ||
+    job.page.accountId !== state.accountId ||
+    !image ||
+    !imageNeedsPageReferrer(image)
+  )
+    throw new Error('原图读取请求已失效或不属于当前任务');
+  assertPlatformReady();
+  const result = await frameCall<string>(
+    job.sourceFrame,
+    {
+      op: 'image-resource',
+      binding: {
+        accountId: job.page.accountId,
+        taskKey: job.page.taskKey,
+        fingerprint: job.page.fingerprint,
+      },
+      imageId,
+      resourceKey,
+    },
+    { signal: entry.signal },
+  );
+  if (
+    pending.get(id) !== entry ||
+    entry.signal?.aborted ||
+    state.accountId !== job.page.accountId
+  )
+    throw new Error('原图读取已取消，结果未应用');
+  return result;
+}
 function admissionMessage(message: unknown, signal: AbortSignal): Promise<any> {
   return new Promise((resolve, reject) => {
     const cancel = () => {

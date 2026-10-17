@@ -22,6 +22,7 @@ import {
   jobHeartbeat,
   requestPlatformAdmission,
   cancelPlatformAdmission,
+  requestImageResource,
 } from '../src/background/transport';
 import {
   refreshOverview,
@@ -375,6 +376,16 @@ export default defineBackground(() => {
         );
         return true;
       }
+      if (
+        trusted &&
+        sender.url?.endsWith('/offscreen.html') &&
+        message.kind === 'image-resource'
+      )
+        return requestImageResource(
+          message.id,
+          message.imageId,
+          message.resourceKey,
+        );
       if (sender.tab?.id !== undefined && !trusted) {
         if (!sender.url || !isChaoxingUrl(sender.url))
           throw new Error('页面来源无效');
@@ -967,6 +978,9 @@ export default defineBackground(() => {
         reply({
           ok: false,
           error: error instanceof Error ? error.message : '扩展操作失败',
+          ...(error instanceof PlatformAccessError
+            ? { block: error.block }
+            : {}),
         }),
     );
     return true;

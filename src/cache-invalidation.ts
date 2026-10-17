@@ -1,4 +1,5 @@
 import type { AppState, QuestionRecord } from './domain';
+import { reusableQuestionText } from './preparation';
 
 export function invalidateCandidates(
   state: AppState,
@@ -10,7 +11,7 @@ export function invalidateCandidates(
       continue;
     }
     record.retainedQuestionIds = record.snapshot.questions
-      .filter((q) => !affected(q))
+      .filter((q) => !affected(q) && reusableQuestionText(q))
       .map((q) => q.id);
     record.decoded =
       record.retainedQuestionIds.length === record.snapshot.questions.length;

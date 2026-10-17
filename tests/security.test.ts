@@ -5,9 +5,34 @@ import {
   providerPermission,
   redact,
   isTrustedExtensionSender,
+  safeQuestionImageUrl,
+  isPublicQuestionImageUrl,
+  safePageUrl,
 } from '../src/security';
 import { fontSource } from '../src/ocr';
 describe('来源、凭据与本地资源', () => {
+  it('cldisk 仅作为公共题目图片来源，不能用作课程页面或携带账号凭据', () => {
+    const image = 'https://p.cldisk.com/star3/origin/formula.png';
+    expect(safeQuestionImageUrl(image)).toBe(image);
+    expect(isPublicQuestionImageUrl(image)).toBe(true);
+    expect(isChaoxingUrl(image)).toBe(false);
+    expect(safePageUrl(image)).toBeUndefined();
+    expect(
+      isPublicQuestionImageUrl('https://mooc1.chaoxing.com/image.png'),
+    ).toBe(false);
+  });
+  it.each([
+    'http://p.cldisk.com/image.png',
+    'https://p.cldisk.com.attacker.test/image.png',
+    'https://attacker.cldisk.com/image.png',
+    'https://cldisk.com/image.png',
+    'https://p.cldisk.com:8443/image.png',
+    'https://user:password@p.cldisk.com/image.png',
+    'https://example.com/image.png',
+  ])('公共题目图片拒绝非精确来源或含凭据的地址：%s', (url) => {
+    expect(safeQuestionImageUrl(url)).toBeUndefined();
+    expect(isPublicQuestionImageUrl(url)).toBe(false);
+  });
   it('仅开发版允许本扩展侧栏标签页，正式版及网页消息仍受限制', () => {
     const sender = {
       id: 'own-id',

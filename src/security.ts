@@ -34,6 +34,35 @@ export function safePageUrl(value: string, base?: string): string | undefined {
     return undefined;
   }
 }
+/** Public image CDNs are separate from authenticated course-page origins. */
+export function isPublicQuestionImageUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      !url.username &&
+      !url.password &&
+      ['https://p.ananas.chaoxing.com', 'https://p.cldisk.com'].includes(
+        url.origin,
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+export function safeQuestionImageUrl(
+  value: string,
+  base?: string,
+): string | undefined {
+  if (!value.trim()) return;
+  try {
+    const url = new URL(value, base).href;
+    return isChaoxingUrl(url) || isPublicQuestionImageUrl(url)
+      ? url
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
 export function normalizeBaseUrl(value: string): string {
   const u = new URL(value.trim());
   if (u.username || u.password || u.search || u.hash)

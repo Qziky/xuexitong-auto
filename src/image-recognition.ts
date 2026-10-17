@@ -12,7 +12,11 @@ import {
   placeholdersPreserved,
   stripImageResources,
 } from './image-content';
-import { safePageUrl } from './security';
+import {
+  imageNeedsPageReferrer,
+  loadImageBlob,
+  type ImageSourceReader,
+} from './image-loader';
 import { recognitionEngines } from './recognition-settings';
 import { transcribeSegments, type VisionScope } from './vision';
 import { boundedMap } from './resource-pool';
@@ -23,12 +27,7 @@ import {
   RecognitionCacheHit,
 } from './recognition-cache';
 import { ProviderError } from './provider';
-import {
-  detectVerification,
-  platformBlockFor,
-  PlatformAccessError,
-  retryAfterTime,
-} from './platform-access';
+import { PlatformAccessError } from './platform-access';
 import type { ProgressSink } from './progress';
 import { formulaImageContext, formulaText } from './formula-content';
 import { imageMaterials } from './image-materials';
@@ -41,19 +40,6 @@ type RasterReader = (
   signal?: AbortSignal,
   pulse?: ProgressSink,
 ) => Promise<RecognitionAttempt>;
-const MAX_BYTES = 6000000;
-function rasterContentType(bytes: Uint8Array): string | undefined {
-  const startsWith = (signature: number[]) =>
-    signature.every((value, i) => bytes[i] === value);
-  if (startsWith([137, 80, 78, 71, 13, 10, 26, 10])) return 'image/png';
-  if (startsWith([255, 216, 255])) return 'image/jpeg';
-  if (
-    startsWith([82, 73, 70, 70]) &&
-    [87, 69, 66, 80].every((value, i) => bytes[i + 8] === value)
-  )
-    return 'image/webp';
-  return undefined;
-}
 function cancelled(signal?: AbortSignal): void {
   if (signal?.aborted) throw new ProviderError('图片识别已取消', 'cancelled');
 }
@@ -64,93 +50,16 @@ export async function loadImageCanvas(
   base: string,
   signal?: AbortSignal,
   onLoaded?: (source: LoadedRaster) => void,
+  readSource?: ImageSourceReader,
 ): Promise<HTMLCanvasElement> {
   cancelled(signal);
-  const src = image.src;
-  if (
-    !src ||
-    !(
-      safePageUrl(src, base) ||
-      /^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(src)
-    )
-  )
-    throw new Error('图片地址缺失或不属于受支持的课程资源');
-  // Public formula images redirect from star3/origin/* to star4/*/origin.*.
-  // Their wildcard CORS response must be read without login credentials.
-  const publicCdn =
-    new URL(src, base).origin === 'https://p.ananas.chaoxing.com';
-  const controller = new AbortController();
-  const cancel = () => controller.abort();
-  signal?.addEventListener('abort', cancel, { once: true });
-  const timer = setTimeout(cancel, 15000);
   let bitmap: ImageBitmap | undefined;
   try {
-    const response = await fetch(src, {
-      signal: controller.signal,
-      credentials: publicCdn ? 'omit' : 'include',
-      cache: 'force-cache',
-      redirect: publicCdn ? 'follow' : 'error',
-    });
-    cancelled(signal);
-    if (
-      publicCdn &&
-      response.url &&
-      (!safePageUrl(response.url) ||
-        new URL(response.url).origin !== 'https://p.ananas.chaoxing.com')
-    ) {
-      await response.body?.cancel();
-      throw new Error('图片跳转地址不属于原课程图片来源');
-    }
-    if (response.status === 429)
-      throw new PlatformAccessError(
-        platformBlockFor(
-          src,
-          'rate-limit',
-          retryAfterTime(response.headers.get('Retry-After')),
-        ),
-      );
-    if (!response.ok) throw new Error('图片资源读取失败，请确认页面图片已加载');
-    if (Number(response.headers.get('Content-Length')) > MAX_BYTES)
-      throw new Error('图片超过 6 MB 大小限制');
-    const chunks: Uint8Array<ArrayBuffer>[] = [];
-    let size = 0;
-    if (response.body) {
-      const reader = response.body.getReader();
-      try {
-        while (true) {
-          cancelled(signal);
-          const { value, done } = await reader.read();
-          if (done) break;
-          size += value.length;
-          if (size > MAX_BYTES) {
-            await reader.cancel();
-            throw new Error('图片超过 6 MB 大小限制');
-          }
-          chunks.push(new Uint8Array(value));
-        }
-      } finally {
-        reader.releaseLock();
-      }
-    } else {
-      const bytes = new Uint8Array(await response.arrayBuffer());
-      if (bytes.length > MAX_BYTES) throw new Error('图片超过 6 MB 大小限制');
-      chunks.push(bytes);
-    }
-    const blob = new Blob(chunks);
-    // The platform's /ananas/latex/p/* endpoint can label a PNG with a
-    // malformed "application/octet-stream, image/jpeg" Content-Type.
-    const type = rasterContentType(
-      new Uint8Array(await blob.slice(0, 12).arrayBuffer()),
-    );
-    if (!type) {
-      const block = detectVerification(
-        src,
-        new DOMParser().parseFromString(await blob.text(), 'text/html'),
-      );
-      if (block) throw new PlatformAccessError(block);
-      throw new Error('资源不是受支持的 PNG、JPEG 或 WebP 图片');
-    }
-    bitmap = await createImageBitmap(blob.slice(0, blob.size, type));
+    const blob =
+      readSource && imageNeedsPageReferrer(image)
+        ? await readSource(image, signal)
+        : await loadImageBlob(image, base, signal);
+    bitmap = await createImageBitmap(blob);
     cancelled(signal);
     if (
       !bitmap.width ||
@@ -161,7 +70,7 @@ export async function loadImageCanvas(
     )
       throw new Error('图片尺寸为空或超过 1600 万像素限制');
     onLoaded?.({
-      blob: blob.slice(0, blob.size, type),
+      blob,
       width: bitmap.width,
       height: bitmap.height,
     });
@@ -190,7 +99,6 @@ export async function loadImageCanvas(
   } catch (error) {
     if (error instanceof PlatformAccessError) throw error;
     cancelled(signal);
-    if (controller.signal.aborted) throw new Error('图片加载超时（15 秒）');
     throw new Error(
       error instanceof Error && !/fetch|network|https?:/i.test(error.message)
         ? error.message
@@ -198,8 +106,6 @@ export async function loadImageCanvas(
     );
   } finally {
     bitmap?.close();
-    clearTimeout(timer);
-    signal?.removeEventListener('abort', cancel);
   }
 }
 
@@ -211,6 +117,7 @@ export async function restoreQuestionImages(
   signal?: AbortSignal,
   pulse?: ProgressSink,
   scope?: VisionScope,
+  readSource?: ImageSourceReader,
 ): Promise<PageSnapshot> {
   const entries = page.questions.flatMap((question) =>
     (question.images ?? []).map((image) => ({ question, image })),
@@ -257,9 +164,15 @@ export async function restoreQuestionImages(
         let inlineGlyph = false;
         const load = (cancel?: AbortSignal) => {
           loadAttempted = true;
-          return loadImageCanvas(image, page.url, cancel, (loaded) => {
-            source = loaded;
-          }).then((canvas) => {
+          return loadImageCanvas(
+            image,
+            page.url,
+            cancel,
+            (loaded) => {
+              source = loaded;
+            },
+            readSource,
+          ).then((canvas) => {
             inlineGlyph = canvas.dataset.inlineGlyph === 'true';
             return canvas;
           });

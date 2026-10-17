@@ -14,6 +14,7 @@ import {
 } from '../src/page-actions';
 import { catalogMenu, openCatalogAction } from '../src/catalog-navigation';
 import type { FrameCommand, FrameInfo } from '../src/messages';
+import { boundPageImage, readPageImageResource } from '../src/page-image';
 import { describeFrame } from '../src/frame-description';
 import {
   learningMenu,
@@ -367,6 +368,23 @@ export default defineContentScript({
               ]);
             }
             return liveSnapshot();
+          }
+          case 'image-resource': {
+            const page = extractPage(document, location.href, document.cookie);
+            const result = await readPageImageResource(
+              page,
+              command.binding,
+              command.imageId,
+              command.resourceKey,
+            );
+            assertPlatformPage(location.href, document);
+            boundPageImage(
+              extractPage(document, location.href, document.cookie),
+              command.binding,
+              command.imageId,
+              command.resourceKey,
+            );
+            return result;
           }
           case 'fill':
             return fillPage(command.binding, command.proposals);
