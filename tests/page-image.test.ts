@@ -50,6 +50,17 @@ it('课程页面读取原始 PNG 字节，不携带登录凭据、不重建图�
   );
   expect(image.src).toBe('https://p.cldisk.com/star3/origin/formula.png');
 });
+it('旧 HTTP cldisk 题图仍由绑定的课程页面读取，实际请求为 HTTPS', async () => {
+  const { page, binding, image } = fixture();
+  image.src = 'http://p.cldisk.com/star3/origin/formula.png';
+  expect(
+    await readPageImageResource(page, binding, image.id, image.resourceKey),
+  ).toBe('data:image/png;base64,iVBORw0KGgo=');
+  expect(fetch).toHaveBeenCalledWith(
+    'https://p.cldisk.com/star3/origin/formula.png',
+    expect.objectContaining({ credentials: 'omit', redirect: 'follow' }),
+  );
+});
 it.each(['accountId', 'taskKey', 'fingerprint'] as const)(
   '%s 变化后不读取任何原图',
   async (field) => {

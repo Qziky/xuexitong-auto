@@ -9,7 +9,7 @@ export default defineConfig({
     name: '超星课程任务助手',
     description:
       '浅色侧栏，按步骤识别文字、生成参考、核对、导出、填写及保存提交；支持音视频、文档、图片和章节题学习，实时显示进度。',
-    version: '0.6.2',
+    version: '0.6.3',
     minimum_chrome_version: '116',
     permissions: [
       'storage',

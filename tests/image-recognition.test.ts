@@ -600,6 +600,22 @@ describe('题目原始图片与公式识别', () => {
       expect.objectContaining({ credentials: 'include', redirect: 'error' }),
     );
   });
+  it.each(['p.ananas.chaoxing.com', 'p.cldisk.com'])(
+    '直接读取 %s 的旧 HTTP 题图时也只请求 HTTPS，不携带登录凭据',
+    async (host) => {
+      await loadImageCanvas(
+        {
+          ...page().questions[0]!.images![0]!,
+          src: `http://${host}/star3/origin/legacy.png`,
+        },
+        URL,
+      );
+      expect(fetcher).toHaveBeenCalledExactlyOnceWith(
+        `https://${host}/star3/origin/legacy.png`,
+        expect.objectContaining({ credentials: 'omit', redirect: 'follow' }),
+      );
+    },
+  );
   it('外部地址、超大资源及非图片资源被拒绝', async () => {
     const image = page().questions[0]!.images![0]!;
     await expect(
@@ -692,6 +708,52 @@ describe('题目原始图片与公式识别', () => {
 });
 
 describe('图片数据、设置与预览页', () => {
+  it.each(['p.ananas.chaoxing.com', 'p.cldisk.com'])(
+    '%s 的 HTTP 题干和选项图片可提取并保存，HTTP 和 HTTPS 指纹一致',
+    async (host) => {
+      const html = `<div class="questionLi" id="question10"><h3 class="mark_name"><span class="colorShallow">单选题</span>题干<img src="http://${host}/star3/origin/stem.png" data-original="http://${host}/star3/origin/stem.png"></h3><a onclick="addChoice()"><span class="num_option" data="D">A</span><span class="answer_p"><img src="http://${host}/star3/origin/option.png"></span></a><a onclick="addChoice()"><span class="num_option" data="B">B</span><span class="answer_p">其他选项</span></a></div>`;
+      const live = new DOMParser().parseFromString(html, 'text/html');
+      const raw = extractPage(live, URL)!;
+      const inert = extractPage(inertDocument(html), URL)!;
+      const secure = extractPage(
+        inertDocument(html.replaceAll('http:', 'https:')),
+        URL,
+      )!;
+      const sources = ['stem', 'option'].map(
+        (part) => `https://${host}/star3/origin/${part}.png`,
+      );
+      expect(raw.questions[0]!.images!.map((image) => image.src)).toEqual(
+        sources,
+      );
+      expect(inert.questions[0]!.images!.map((image) => image.src)).toEqual(
+        sources,
+      );
+      expect(raw.fingerprint).toBe(inert.fingerprint);
+      expect(raw.fingerprint).toBe(secure.fingerprint);
+      expect(live.querySelector('img')!.getAttribute('src')).toMatch(/^http:/);
+      expect(fetcher).not.toHaveBeenCalled();
+      const result = await restoreSnapshot(raw, '/ocr', undefined, undefined, {
+        ...DEFAULT_RECOGNITION,
+        imageStrategy: 'vision-only',
+      });
+      const question = result.questions[0]!;
+      expect(question.issues).toEqual([]);
+      expect(question.options[0]).toMatchObject({ key: 'D', label: 'A' });
+      for (const image of question.images!) {
+        expect(image.src).toBeUndefined();
+        expect(image.material).toBeDefined();
+        expect((await imageMaterials.read(image.material!)).size).toBe(
+          PNG_BYTES.length,
+        );
+      }
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      for (const src of sources)
+        expect(fetcher).toHaveBeenCalledWith(
+          src,
+          expect.objectContaining({ credentials: 'omit', redirect: 'follow' }),
+        );
+    },
+  );
   it('cldisk 按需使用课程页返回的原始字节，不再从识别后台重复下载', async () => {
     const p = page();
     p.questions[0]!.images![0]!.src =
@@ -810,7 +872,7 @@ describe('图片数据、设置与预览页', () => {
     '<img src="   ">',
     '<img data-original=" " src="">',
     '<img data-original="https://images.example/original.png" src="javascript:alert(1)">',
-    '<img data-src="http://p.ananas.chaoxing.com/original.png">',
+    '<img data-src="http://mooc1.chaoxing.com/original.png">',
     '<img data-original="data:image/svg+xml;base64,AAAA">',
   ])('缺失或不受支持的地址不会作为原图读取：%s', (html) => {
     const p = extractPage(

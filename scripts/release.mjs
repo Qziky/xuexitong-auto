@@ -63,6 +63,17 @@ const version = JSON.parse(
 ).version;
 if (manifest.version !== version)
   throw new Error('Manifest/package version mismatch');
+for (const [archivePath, sourcePath] of [
+  ['licenses/GPL-3.0.txt', 'LICENSE'],
+  ['licenses/THIRD_PARTY_NOTICES.md', 'THIRD_PARTY_NOTICES.md'],
+]) {
+  const bundled = await readFile(resolve(unpacked, archivePath));
+  const source = await readFile(resolve(root, sourcePath));
+  if (!bundled.equals(source))
+    throw new Error(
+      `Bundled license or third-party notice is missing or stale: ${archivePath}`,
+    );
+}
 const extensionZip = `chaoxing-task-assistant-${version}-edge.zip`;
 const sourceName = `chaoxing-task-assistant-${version}-source.zip`;
 for (const item of await readdir(output, { withFileTypes: true })) {
@@ -130,8 +141,14 @@ const requiredSourceFiles = [
 for (const name of requiredSourceFiles)
   if (!sourceFiles.includes(name))
     throw new Error(`Required source archive file is missing: ${name}`);
-if (sourceFiles.some((name) => /^(?:artifacts|\.codex|node_modules|dist|\.output)\//.test(name)))
-  throw new Error('Local evidence, configuration, or generated output entered the source archive');
+if (
+  sourceFiles.some((name) =>
+    /^(?:artifacts|\.codex|node_modules|dist|\.output)\//.test(name),
+  )
+)
+  throw new Error(
+    'Local evidence, configuration, or generated output entered the source archive',
+  );
 for (const name of sourceFiles.sort()) {
   const data = await readFile(resolve(root, name));
   if (/sk-[a-z0-9]{35,}/.test(data.toString('utf8')))
@@ -170,8 +187,10 @@ await writeFile(
 );
 await writeFile(
   resolve(output, '升级说明.md'),
-  (await readFile(resolve(root, `docs/upgrade-${version}.md`), 'utf8'))
-    .replace('(acceptance.md)', '(验收记录.md)'),
+  (await readFile(resolve(root, `docs/upgrade-${version}.md`), 'utf8')).replace(
+    '(acceptance.md)',
+    '(验收记录.md)',
+  ),
 );
 const sums = [];
 for (const name of [extensionZip, sourceName])

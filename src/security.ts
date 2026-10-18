@@ -55,9 +55,15 @@ export function safeQuestionImageUrl(
 ): string | undefined {
   if (!value.trim()) return;
   try {
-    const url = new URL(value, base).href;
-    return isChaoxingUrl(url) || isPublicQuestionImageUrl(url)
-      ? url
+    const url = new URL(value, base);
+    // Older assignments retain HTTP CDN addresses even when the browser
+    // displays their HTTPS equivalents. Normalize only the known public CDNs.
+    if (url.protocol === 'http:' && !url.port) {
+      url.protocol = 'https:';
+      if (!isPublicQuestionImageUrl(url.href)) return;
+    }
+    return isChaoxingUrl(url.href) || isPublicQuestionImageUrl(url.href)
+      ? url.href
       : undefined;
   } catch {
     return undefined;

@@ -13,10 +13,11 @@ export type ImageSourceReader = (
 ) => Promise<Blob>;
 
 export function imageNeedsPageReferrer(image: QuestionImage): boolean {
+  const src = image.src && safeQuestionImageUrl(image.src);
   return Boolean(
-    image.src &&
-    isPublicQuestionImageUrl(image.src) &&
-    new URL(image.src).origin === 'https://p.cldisk.com',
+    src &&
+    isPublicQuestionImageUrl(src) &&
+    new URL(src).origin === 'https://p.cldisk.com',
   );
 }
 
@@ -43,15 +44,13 @@ export async function loadImageBlob(
   signal?: AbortSignal,
 ): Promise<Blob> {
   cancelled(signal);
-  const src = image.src;
-  if (
-    !src ||
-    !(
-      safeQuestionImageUrl(src, base) ||
-      /^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(src)
-    )
-  )
-    throw new Error('图片地址缺失或不属于受支持的课程资源');
+  const src =
+    image.src &&
+    (safeQuestionImageUrl(image.src, base) ??
+      (/^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(image.src)
+        ? image.src
+        : undefined));
+  if (!src) throw new Error('图片地址缺失或不属于受支持的课程资源');
   // Public formula images redirect from star3/origin/* to star4/*/origin.*.
   // Their wildcard CORS response must be read without login credentials.
   const publicCdn = isPublicQuestionImageUrl(src);

@@ -16,6 +16,14 @@ await copyFile(
   resolve(root, 'node_modules/katex/LICENSE'),
   resolve(root, 'public/licenses/KaTeX.txt'),
 );
+await copyFile(
+  resolve(root, 'LICENSE'),
+  resolve(root, 'public/licenses/GPL-3.0.txt'),
+);
+await copyFile(
+  resolve(root, 'THIRD_PARTY_NOTICES.md'),
+  resolve(root, 'public/licenses/THIRD_PARTY_NOTICES.md'),
+);
 await mkdir(resolve(ocr, 'core'), { recursive: true });
 await mkdir(resolve(ocr, 'lang'), { recursive: true });
 const copied = [];

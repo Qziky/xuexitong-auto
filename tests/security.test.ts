@@ -11,6 +11,20 @@ import {
 } from '../src/security';
 import { fontSource } from '../src/ocr';
 describe('来源、凭据与本地资源', () => {
+  it.each(['p.ananas.chaoxing.com', 'p.cldisk.com'])(
+    '%s 的旧 HTTP 题图只规范为 HTTPS，不开放 HTTP 读取或课程页面访问',
+    (host) => {
+      const path = '/star3/origin/formula.png?size=large';
+      const image = `http://${host}${path}`;
+      expect(safeQuestionImageUrl(image)).toBe(`https://${host}${path}`);
+      expect(safeQuestionImageUrl(`http://${host}:80${path}`)).toBe(
+        `https://${host}${path}`,
+      );
+      expect(isPublicQuestionImageUrl(image)).toBe(false);
+      expect(isChaoxingUrl(image)).toBe(false);
+      expect(safePageUrl(image)).toBeUndefined();
+    },
+  );
   it('cldisk 仅作为公共题目图片来源，不能用作课程页面或携带账号凭据', () => {
     const image = 'https://p.cldisk.com/star3/origin/formula.png';
     expect(safeQuestionImageUrl(image)).toBe(image);
@@ -22,7 +36,13 @@ describe('来源、凭据与本地资源', () => {
     ).toBe(false);
   });
   it.each([
-    'http://p.cldisk.com/image.png',
+    'http://mooc1.chaoxing.com/image.png',
+    'http://p.ananas.chaoxing.com.attacker.test/image.png',
+    'http://attacker.cldisk.com/image.png',
+    'http://p.cldisk.com:8080/image.png',
+    'http://p.ananas.chaoxing.com:443/image.png',
+    'http://user:password@p.ananas.chaoxing.com/image.png',
+    'http://user:password@p.cldisk.com/image.png',
     'https://p.cldisk.com.attacker.test/image.png',
     'https://attacker.cldisk.com/image.png',
     'https://cldisk.com/image.png',

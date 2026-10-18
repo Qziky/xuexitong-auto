@@ -1,7 +1,7 @@
 {
   "name": "chaoxing-task-assistant",
-  "version": "0.6.2",
-  "license": "MIT",
+  "version": "0.6.3",
+  "license": "GPL-3.0-only",
   "private": true,
   "type": "module",
   "scripts": {
