@@ -1,6 +1,6 @@
 # Third-party notices
 
-The project itself is licensed under GPL-3.0-only starting with version 0.6.3. The components below retain their own licenses; this notice does not relicense third-party software or data.
+The project code is available under GPL-3.0-only. Releases that included the MIT license retain that license as well. The components below retain their own licenses; this notice does not relicense third-party software or data.
 
 The following components and data are included in the browser extension distribution. Their license identifiers were checked against the package metadata in `package-lock.json`.
 

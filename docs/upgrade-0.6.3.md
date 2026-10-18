@@ -4,6 +4,6 @@
 
 更新时重新加载扩展、刷新作业，然后选择“重新识别文字”或出错题目的“重新识别”。改动不会自行生成候选、填写网页、保存草稿或提交作业。
 
-从 0.6.3 开始，项目代码使用 [GNU GPLv3（GPL-3.0-only）](../LICENSE)。此前发布的版本仍按各自发布包附带的许可证执行。扩展中的 React、KaTeX、Tesseract.js 和识别数据继续使用[各自的许可证](../THIRD_PARTY_NOTICES.md)。
+项目代码（包括此前版本）按 [GNU GPLv3（GPL-3.0-only）](../LICENSE) 提供；此前发布包附带的 MIT 授权仍然有效。扩展中的 React、KaTeX、Tesseract.js 和识别数据继续使用[各自的许可证](../THIRD_PARTY_NOTICES.md)。
 
 验证覆盖 76 个测试文件和 732 项测试，并通过 TypeScript 检查及 MV3 扩展打包。已安装的 Edge 扩展与真实课程侧栏尚未使用本版重新验收。
