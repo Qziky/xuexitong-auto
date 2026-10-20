@@ -5,7 +5,7 @@ import {
   transcribeSegments,
   resetVisionCapability,
 } from '../src/vision';
-import { chat } from '../src/provider';
+import { chat, configureAnswerConcurrency } from '../src/provider';
 import { PlatformAccessError, platformBlockFor } from '../src/platform-access';
 
 const config = {
@@ -18,6 +18,7 @@ const ok = (text: string) =>
   new Response(JSON.stringify({ choices: [{ message: { content: text } }] }));
 const json = (segments: unknown[]) => JSON.stringify({ segments });
 afterEach(() => {
+  configureAnswerConcurrency(3);
   resetVisionCapability(config);
   vi.unstubAllGlobals();
   vi.useRealTimers();
@@ -518,7 +519,8 @@ describe('视觉文字转录接口', () => {
     finishFirst(ok(json([{ id: 'f1', text: '文字', needsReview: false }])));
     await first;
   });
-  it('视觉可与答题请求并行，但答题请求彼此仍串行', async () => {
+  it.each([1, 2])('视觉通道独立，答题按配置的 %i 路并发执行', async limit => {
+    configureAnswerConcurrency(limit);
     let finishVision!: (value: Response) => void;
     let finishFirstAnswer!: (value: Response) => void;
     const fetch = vi.fn().mockImplementation((_url, options) => {
@@ -539,9 +541,9 @@ describe('视觉文字转录接口', () => {
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
     const first = chat(config, [{ role: 'user', content: '答题一' }]);
     const second = chat(config, [{ role: 'user', content: '答题二' }]);
-    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(limit === 1 ? 2 : 3));
     await Promise.resolve();
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(limit === 1 ? 2 : 3);
     finishVision(ok(json([{ id: 'f1', text: '文字', needsReview: false }])));
     await vision;
     finishFirstAnswer(ok('答题一完成'));

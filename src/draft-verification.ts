@@ -8,6 +8,9 @@ export function serverDraftMatches(
 ): boolean {
   if (
     !server ||
+    expected.pageMode === 'preview' ||
+    server.pageMode === 'preview' ||
+    !expected.questions.length ||
     server.status !== 'pending' ||
     !expected.accountId ||
     server.accountId !== expected.accountId ||

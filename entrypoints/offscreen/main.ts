@@ -1,6 +1,10 @@
 import { parseScanDocument, inertDocument } from '../../src/scan-parser';
 import { restoreSnapshot, testVision, warmOcr } from '../../src/ocr';
-import { chat, solveBatch } from '../../src/provider';
+import {
+  chat,
+  solveBatch,
+  configureAnswerConcurrency,
+} from '../../src/provider';
 import { PlatformReader } from '../../src/platform-reader';
 import { PlatformAccessError } from '../../src/platform-access';
 import type { OffscreenJob } from '../../src/messages';
@@ -15,6 +19,7 @@ const reader = new PlatformReader();
 const admission = new PlatformAdmissionClient((message) =>
   chrome.runtime.sendMessage(message),
 );
+/** Dispatch jobs, applying the answer limit to the globally shared model lane. */
 async function run(
   job: OffscreenJob,
   signal: AbortSignal,
@@ -84,6 +89,7 @@ async function run(
     case 'draft-snapshot':
       return extractPage(inertDocument(job.html), job.url);
     case 'solve':
+      configureAnswerConcurrency(job.answerConcurrency);
       return solveBatch(
         job.provider,
         job.questions,

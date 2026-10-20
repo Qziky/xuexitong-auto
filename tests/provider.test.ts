@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { chat, solveBatch } from '../src/provider';
+import { chat, solveBatch, configureAnswerConcurrency } from '../src/provider';
 import { DEFAULT_PROVIDER, type QuestionRecord } from '../src/domain';
 const config = {
   ...DEFAULT_PROVIDER,
@@ -25,11 +25,37 @@ const ok = (content: string) =>
     status: 200,
   });
 afterEach(() => {
+  configureAnswerConcurrency(3);
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 describe('通用模型兼容层', () => {
+  it('接受50题批次，超过上限不发送请求', async () => {
+    const fetch = vi.fn(async (_url, init) => {
+      const input = JSON.parse(JSON.parse(init.body).messages[1].content);
+      return ok(
+        JSON.stringify({
+          answers: input.questions.map((question: any) => ({
+            questionId: question.questionId,
+            optionIds: [question.options[0].id],
+            explanation: 'fixture',
+            needsReview: false,
+          })),
+        }),
+      );
+    });
+    vi.stubGlobal('fetch', fetch);
+    const batch = Array.from({ length: 50 }, (_, index) => ({
+      ...q,
+      id: String(index),
+    }));
+    expect(await solveBatch(config, batch, 'preserve')).toHaveLength(50);
+    await expect(solveBatch(config, [...batch, q], 'preserve')).rejects.toThrow(
+      '1 至 50',
+    );
+    expect(fetch).toHaveBeenCalledOnce();
+  });
   it('发送普通 JSON 提示和正确认证头，题目不包含真实键或账号信息', async () => {
     const mock = vi.fn().mockResolvedValue(
       ok(

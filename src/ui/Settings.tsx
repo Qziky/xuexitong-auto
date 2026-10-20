@@ -5,6 +5,8 @@ import { normalizeBaseUrl, providerPermission } from '../security';
 import { command, preview } from './client';
 import { RecognitionSettings } from './RecognitionSettings';
 import { LearningSettingsPanel } from './LearningSettings';
+import { AnswerSettingsPanel } from './AnswerSettings';
+/** Compose provider, answer scheduling, recognition and learning settings. */
 export function Settings({
   state,
   onError,
@@ -207,6 +209,11 @@ export function Settings({
           </button>
         )}
       </section>
+      <AnswerSettingsPanel
+        state={state}
+        onError={onError}
+        onRefresh={onRefresh}
+      />
       <RecognitionSettings
         state={state}
         onError={onError}
