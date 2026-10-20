@@ -9,6 +9,7 @@ import { rpc } from '../messages';
 export const preview = !globalThis.chrome?.runtime?.id;
 const demoStarted = Date.now();
 let previewState: AppState | undefined;
+/** Send a background command, or update the synthetic local preview state. */
 export async function command<T = boolean>(
   kind: string,
   extra: Record<string, unknown> = {},
@@ -37,6 +38,8 @@ export async function command<T = boolean>(
     if (kind === 'preferences') Object.assign(state.preferences, extra.value);
     else if (kind === 'save-learning-settings')
       state.learningSettings = extra.settings as AppState['learningSettings'];
+    else if (kind === 'save-answer-settings')
+      state.answerSettings = extra.settings as AppState['answerSettings'];
     else if (kind === 'answer-policy')
       state.draftPolicy = extra.policy as AppState['draftPolicy'];
     else if (kind === 'export-questions') {

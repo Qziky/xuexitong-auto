@@ -76,18 +76,22 @@ interface BlankMarker {
   ordinal?: string;
 }
 
+/** Identify answer slots without counting underscores inside code identifiers. */
 function blankMarkers(value: string): BlankMarker[] {
   const markers: BlankMarker[] = [];
-  const pattern = /(?<![A-Za-z0-9_])_+(?=\d+\s*[.、．]|[^A-Za-z0-9_]|$)/g;
+  const pattern =
+    /(?<![A-Za-z0-9_])[_＿]+(?=\d+\s*[.、．]|[BDOHbdoh](?:[^A-Za-z0-9_]|$)|[^A-Za-z0-9_]|$)|[（(][\s\u200b]*[)）]/g;
   for (const match of value.matchAll(pattern)) {
     const index = match.index!;
     const prefix = value.slice(Math.max(0, index - 120), index);
     const ordinal = prefix.match(/(?:^|[^\d])(\d+)\s*[.、．]\s*$/)?.[1];
     markers.push({ index, length: match[0].length, ordinal });
   }
+  if (/[=＝]\s*$/.test(value)) markers.push({ index: value.length, length: 0 });
   return markers;
 }
 
+/** Normalize equivalent answer-slot layouts before comparing transcription. */
 function normalizeBlankLayout(value: string): string {
   let normalized = value;
   for (const marker of blankMarkers(value).reverse()) {
@@ -132,17 +136,26 @@ export function literalMarkers(value: string): string {
     .join('|');
 }
 
+/** Remove answer-slot parentheses while preserving actual mathematical brackets. */
+function bracketStructure(value: string, markers: BlankMarker[]): string {
+  for (const marker of [...markers].reverse())
+    value =
+      value.slice(0, marker.index) + value.slice(marker.index + marker.length);
+  return (value.match(/[()（）]/g) ?? [])
+    .map((mark) => mark.replace(/（/g, '(').replace(/）/g, ')'))
+    .join('');
+}
+
+/** Require the real input count and ordinal order while retaining math brackets. */
 export function validateRecognitionMarkers(
   source: string,
   recognized: string,
   context?: RecognitionMarkerContext,
 ): { valid: boolean; reason?: string } {
-  const sourceBrackets = (source.match(/[()（）]/g) ?? [])
-    .map((mark) => mark.replace(/（/g, '(').replace(/）/g, ')'))
-    .join('');
-  const recognizedBrackets = (recognized.match(/[()（）]/g) ?? [])
-    .map((mark) => mark.replace(/（/g, '(').replace(/）/g, ')'))
-    .join('');
+  const sourceBlanks = isBlankStem(context) ? blankMarkers(source) : [];
+  const recognizedBlanks = isBlankStem(context) ? blankMarkers(recognized) : [];
+  const sourceBrackets = bracketStructure(source, sourceBlanks);
+  const recognizedBrackets = bracketStructure(recognized, recognizedBlanks);
   if (sourceBrackets !== recognizedBrackets)
     return {
       valid: false,
@@ -153,8 +166,6 @@ export function validateRecognitionMarkers(
 
   if (isBlankStem(context)) {
     const expected = context.blankCount;
-    const sourceBlanks = blankMarkers(source);
-    const recognizedBlanks = blankMarkers(recognized);
     if (expected === undefined || !Number.isInteger(expected) || expected < 0)
       return { valid: false, reason: '实际填空位置数量无法确认' };
     if (sourceBlanks.length !== expected)

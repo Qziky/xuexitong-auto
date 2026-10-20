@@ -10,6 +10,8 @@ import type { ProgressSink } from './progress';
 import { SerialChannel } from './serial-channel';
 import { answerImages } from './image-content';
 import { materialDataUrl } from './image-materials';
+import { DEFAULT_ANSWER_SETTINGS } from './domain';
+import { answerSettingsDefaults, MAX_ANSWER_REQUESTS } from './answer-settings';
 
 export class ProviderError extends Error {
   constructor(
@@ -91,7 +93,13 @@ export interface ModelMessage {
   role: string;
   content: ModelContent;
 }
-const modelChannel = new SerialChannel();
+const modelChannel = new SerialChannel(DEFAULT_ANSWER_SETTINGS.concurrency);
+/** Configure the shared answer lane, independently of image transcription. */
+export function configureAnswerConcurrency(limit?: number): void {
+  modelChannel.setLimit(
+    answerSettingsDefaults({ concurrency: limit }).concurrency,
+  );
+}
 let visionConcurrencyLimit = 5;
 let visionActive = 0;
 interface VisionWaiter {
@@ -164,6 +172,7 @@ function acquireVisionSlot(
     pumpVisionLane();
   });
 }
+/** Send an answer or format-repair request while holding a shared model slot. */
 export async function chat(
   config: ProviderConfig,
   messages: ModelMessage[] | (() => ModelMessage[] | Promise<ModelMessage[]>),
@@ -171,13 +180,20 @@ export async function chat(
   pulse?: ProgressSink,
   priority = 0,
 ): Promise<string> {
-  pulse?.('等待串行答题通道（执行队列优先）', {
-    code: 'model-lane',
-    waiting: 'model-lane',
-  });
+  const lane = modelChannel.details();
+  if (lane.active >= lane.limit)
+    pulse?.(`等待答题并发名额（上限 ${lane.limit}，执行队列优先）`, {
+      code: 'model-lane',
+      waiting: 'model-lane',
+    });
   const release = await modelChannel.acquire(signal, priority);
   try {
     if (signal?.aborted) throw new ProviderError('请求已取消', 'cancelled');
+    const current = modelChannel.details();
+    pulse?.(`答题请求开始（当前 ${current.active}/${current.limit}）`, {
+      code: 'model-lane-start',
+      waiting: undefined,
+    });
     return await chatRequest(
       config,
       typeof messages === 'function' ? await messages() : messages,
@@ -395,6 +411,7 @@ async function chatRequest(
   }
   throw new ProviderError('模型请求失败', 'network');
 }
+/** Solve a configurable batch, retaining image limits and answer validation. */
 export async function solveBatch(
   config: ProviderConfig,
   questions: QuestionRecord[],
@@ -404,8 +421,8 @@ export async function solveBatch(
   priority = 0,
   imageProvider?: ProviderConfig,
 ): Promise<AnswerProposal[]> {
-  if (questions.length > 5 || !questions.length)
-    throw new Error('每批须为 1 至 5 题');
+  if (questions.length > MAX_ANSWER_REQUESTS || !questions.length)
+    throw new Error(`每批须为 1 至 ${MAX_ANSWER_REQUESTS} 题`);
   const images = questions.flatMap((question) =>
     answerImages(question).map((image) => ({ question, image })),
   );

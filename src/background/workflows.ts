@@ -501,26 +501,76 @@ async function execute(
     );
   }
 }
+/** Unlock only after a non-preview, nonempty, same-task draft is freshly verified. */
 async function confirmUnsubmittedDraft(
-  tabId: number, task: TaskRecord, workflow: TaskWorkflow, signal: AbortSignal, runId: string,
+  tabId: number,
+  task: TaskRecord,
+  workflow: TaskWorkflow,
+  signal: AbortSignal,
+  runId: string,
 ): Promise<boolean> {
-  if (!workflow.filled || !workflow.readbackVerified || !workflow.expectedDigest) return false;
+  if (
+    !workflow.filled ||
+    !workflow.readbackVerified ||
+    !workflow.expectedDigest
+  )
+    return false;
   const refs = await discoverFrames(tabId, signal);
   checkFrames(refs, task.accountId);
   const ids = taskIdentifiers(task.url);
-  const course = state.courses.find(c => c.id === task.courseId && c.accountId === task.accountId);
+  const course = state.courses.find(
+    (c) => c.id === task.courseId && c.accountId === task.accountId,
+  );
   const key = `${course?.courseId ?? ids.course}:${course?.classId ?? ids.clazz}:work:${task.platformId}`;
-  const ref = refs.find(f => f.frameId === workflow.frameId && matchesTaskFrameKey(f, key, state.preparations[task.id]?.snapshot?.taskKey) && f.taskKind === task.type);
+  const ref = refs.find(
+    (f) =>
+      f.frameId === workflow.frameId &&
+      matchesTaskFrameKey(
+        f,
+        key,
+        state.preparations[task.id]?.snapshot?.taskKey,
+      ) &&
+      f.taskKind === task.type,
+  );
   if (!ref) return false;
-  const matches = (page?: PageSnapshot) => !!page && page.status === 'pending' && page.accountId === task.accountId && matchesTaskFrameKey(page, key, state.preparations[task.id]?.snapshot?.taskKey) && existingAnswersDigest(page) === workflow.expectedDigest;
-  const expected = await frameCall<PageSnapshot | undefined>(ref, {op:'extract'}, {signal});
+  const matches = (page?: PageSnapshot) =>
+    !!page &&
+    page.pageMode !== 'preview' &&
+    page.questions.length > 0 &&
+    page.status === 'pending' &&
+    page.accountId === task.accountId &&
+    matchesTaskFrameKey(
+      page,
+      key,
+      state.preparations[task.id]?.snapshot?.taskKey,
+    ) &&
+    existingAnswersDigest(page) === workflow.expectedDigest;
+  const expected = await frameCall<PageSnapshot | undefined>(
+    ref,
+    { op: 'extract' },
+    { signal },
+  );
   if (!matches(expected)) return false;
   for (let attempt = 0; attempt < 3; attempt++) {
     await guardTask(ref, task, signal);
-    if (!await verifySavedDraft(ref, task, expected!, signal, runId)) return false;
+    if (!(await verifySavedDraft(ref, task, expected!, signal, runId)))
+      return false;
   }
-  if (!matches(await frameCall<PageSnapshot | undefined>(ref, {op:'extract'}, {signal}))) return false;
-  operationEvent(runId, '三次最新服务器读取确认同任务、同答案草稿且尚未提交；未重试提交', {code:'submit-not-applied'});
+  if (
+    !matches(
+      await frameCall<PageSnapshot | undefined>(
+        ref,
+        { op: 'extract' },
+        { signal },
+      ),
+    )
+  )
+    return false;
+  operationEvent(
+    runId,
+    '三次最新服务器读取确认同任务、同答案草稿且尚未提交；未重试提交',
+    { code: 'submit-not-applied' },
+  );
   return true;
 }
 let textConfirmation: Promise<void> | undefined;

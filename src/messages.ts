@@ -123,6 +123,7 @@ export type OffscreenJob =
   | { op: 'draft-snapshot'; html: string; url: string }
   | {
       op: 'solve';
+      answerConcurrency?: number;
       priority?: number;
       provider: ProviderConfig;
       imageProvider?: ProviderConfig;

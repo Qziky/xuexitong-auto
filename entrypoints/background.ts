@@ -7,6 +7,7 @@ import {
   saveProvider,
   saveRecognition,
   saveLearningSettings,
+  saveAnswerSettings,
   visionProvider,
   effectiveVisionProvider,
   exportDiagnostics,
@@ -890,6 +891,9 @@ export default defineBackground(() => {
           return startConnectionTest('test', provider);
         case 'save-learning-settings':
           await saveLearningSettings(message.settings);
+          return true;
+        case 'save-answer-settings':
+          await saveAnswerSettings(message.settings);
           return true;
         case 'save-recognition': {
           cancelConnectionTests();

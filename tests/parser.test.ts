@@ -17,6 +17,20 @@ const URL_NEW =
   'https://mooc1.chaoxing.com/mooc-ans/mooc2/work/dowork?courseId=100&classId=200&workId=901';
 
 describe('提交回执', () => {
+  it.each(['script', 'textarea'])(
+    '从未初始化的%s编辑器读取服务端草稿',
+    (tag) => {
+      const content =
+        tag === 'script'
+          ? '<p>保存 &amp; 文本</p>'
+          : '&lt;p&gt;保存 &amp;amp; 文本&lt;/p&gt;';
+      const html = `<input name="uid" value="1"><div class="questionLi" id="question101" typename="填空题"><div class="mark_name">示例（ ）</div><${tag} id="answerEditor1011" type="text/plain">${content}</${tag}></div>`;
+      const page = extractPage(inertDocument(html), URL_NEW)!;
+      expect(page.questions[0]!.blanks).toEqual([
+        { id: 'answerEditor1011', kind: 'ueditor', value: '保存 & 文本' },
+      ]);
+    },
+  );
   it('旧版批阅页面读取总成绩和非编辑选项，不能把单题分数当总成绩', () => {
     const url = URL_OLD.replace(
       '/api/work?',

@@ -16,6 +16,7 @@ import {
 import { normalizeBaseUrl, redact } from '../security';
 import { migrateState } from '../state-migration';
 import { validateLearningSettings } from '../learning-settings';
+import { validateAnswerSettings } from '../answer-settings';
 import { stripImageResources } from '../image-content';
 import { diffState } from '../state-sync';
 import {
@@ -410,17 +411,27 @@ export async function saveRecognition(
   log('文字识别设置已保存；请重新生成候选答案');
   await persist(true);
 }
+/** Save scheduling independently; existing candidate answers remain valid. */
+export async function saveAnswerSettings(value: unknown): Promise<void> {
+  state.answerSettings = validateAnswerSettings(value);
+  log(
+    `答题设置已保存：并发 ${state.answerSettings.concurrency}，每批最多 ${state.answerSettings.batchSize} 题；下次生成生效`,
+  );
+  await persist(true);
+}
 export async function saveLearningSettings(value: unknown): Promise<void> {
   state.learningSettings = validateLearningSettings(value);
   log('自动学习设置已保存；从下一任务生效');
   await persist(true);
 }
+/** Export public configuration and diagnostics without credentials or page payloads. */
 export function exportDiagnostics(): object {
   return {
     version: chrome.runtime.getManifest().version,
     exportedAt: new Date().toISOString(),
     provider: state.provider,
     recognition: state.recognition,
+    answerSettings: state.answerSettings,
     learningSettings: state.learningSettings,
     visionProvider: state.visionProvider,
     platformBlock: state.platformBlock

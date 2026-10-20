@@ -23,7 +23,8 @@ import {
   displayedBlanks,
 } from './published-answer';
 
-export function textOf(node: Element | null | undefined): string {
+/** Normalize text from elements or inert template fragments. */
+export function textOf(node: Node | null | undefined): string {
   return (node?.textContent ?? '')
     .replace(/\u00a0/g, ' ')
     .replace(/[\t\r\n ]+/g, ' ')
@@ -225,6 +226,20 @@ function isEncoded(el: Element | null, url: string): boolean {
   return true;
 }
 
+/** Read saved HTML before UEditor has created its iframe, without activating markup. */
+function serverEditorText(node: HTMLElement): string {
+  if (node.tagName === 'SCRIPT' || node.tagName === 'TEXTAREA') {
+    const template = node.ownerDocument.createElement('template');
+    template.innerHTML =
+      (node as HTMLTextAreaElement).value ?? node.textContent ?? '';
+    return textOf(template.content);
+  }
+  return textOf(
+    node.querySelector('.edui-editor-iframeholder iframe')?.parentElement,
+  );
+}
+
+/** Extract a question, including initialized and server-rendered editor values. */
 export function readQuestion(
   el: Element,
   index: number,
@@ -343,10 +358,7 @@ export function readQuestion(
           (node.tagName === 'DIV' && /textarea/.test(node.id)));
       if (blanks.some((b) => b.id === node.id) || !node.id) continue;
       const value = editor
-        ? textOf(
-            node.querySelector('.edui-editor-iframeholder iframe')
-              ?.parentElement,
-          )
+        ? serverEditorText(node)
         : ((node as HTMLInputElement).value ?? '');
       blanks.push({
         id: node.id,

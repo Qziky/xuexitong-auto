@@ -26,7 +26,8 @@ import {
   rethrowPlatformBlock,
 } from './platform';
 import { PlatformAccessError, platformBlockFor } from '../platform-access';
-import { cancelScanAndWait } from './scan-control';
+import { cancelScanAndWait, checkFrames } from './scan-control';
+import { allowedPlatformRead } from '../platform-reader';
 import {
   yieldPreparation,
   releasePreparationPriority,
@@ -876,6 +877,61 @@ async function readResults(
   }
   return { status: 'unknown' };
 }
+/** Read a task-bound result frame rather than fetching a chapter container URL. */
+async function readBoundServerResult(
+  tabId: number,
+  task: TaskRecord,
+  signal: AbortSignal,
+  runId?: string,
+): Promise<{ status: TaskStatus; grade?: string }> {
+  assertPlatformReady();
+  if (signal.aborted) throw new Error('操作已取消');
+  if (state.accountId !== task.accountId)
+    throw new Error('核验期间登录账号已变化');
+  const refs = await discoverFrames(tabId, signal);
+  checkFrames(refs, task.accountId);
+  const known =
+    state.queue.items.find(
+      (item) => item.taskId === task.id && item.tabId === tabId,
+    )?.snapshot?.taskKey ?? state.preparations[task.id]?.snapshot?.taskKey;
+  const key = expectedTaskKey(task);
+  const frame = refs.find(
+    (ref) =>
+      ref.adapter &&
+      matchesTaskFrameKey(ref, key, known) &&
+      allowedPlatformRead(ref.url, 'result'),
+  );
+  const url =
+    frame?.url ??
+    (allowedPlatformRead(task.url, 'result') ? task.url : undefined);
+  if (!url) return { status: 'unknown' };
+  const read = await offscreen<{ html: string; url: string }>(
+    { op: 'fetch', url, scope: task.accountId, fresh: true, purpose: 'result' },
+    signal,
+    runId,
+  );
+  const ids = taskIdentifiers(read.url);
+  if (
+    !allowedPlatformRead(read.url, 'result') ||
+    !matchesTaskFrameKey(
+      { url: read.url, taskKey: `${ids.course}:${ids.clazz}:work:${ids.work}` },
+      key,
+      known,
+    )
+  )
+    return { status: 'unknown' };
+  const result = await offscreen<{ status: TaskStatus; grade?: string }>(
+    { op: 'status', ...read },
+    signal,
+    runId,
+  );
+  checkFrames(await discoverFrames(tabId, signal), task.accountId);
+  if (state.accountId !== task.accountId)
+    throw new Error('核验期间登录账号已变化');
+  return result;
+}
+
+/** Observe the page first, then perform fresh identity-bound server verification. */
 export async function verifyResult(
   tabId: number,
   task: TaskRecord,
@@ -892,19 +948,11 @@ export async function verifyResult(
   }
   // Check a fresh server-rendered task page before exposing an ambiguous result; no submission endpoints are called here.
   try {
-    const read = await offscreen<{ html: string; url: string }>(
-      { op: 'fetch', url: task.url, fresh: true, purpose: 'result' },
-      signal,
-      runId,
-    );
-    const result = await offscreen<{ status: TaskStatus; grade?: string }>(
-      { op: 'status', ...read },
-      signal,
-      runId,
-    );
+    const result = await readBoundServerResult(tabId, task, signal, runId);
     if (['submitted', 'complete'].includes(result.status)) return result;
   } catch (error) {
     rethrowPlatformBlock(error);
+    if (signal.aborted) throw error;
     /* Ambiguous stays ambiguous. */
   }
   return { status: 'unknown' };
