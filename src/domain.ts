@@ -1,5 +1,5 @@
 export const TEXT_PROCESSING_VERSION = 10;
-export const PAGE_TEXT_PROCESSING_VERSION = 14;
+export const PAGE_TEXT_PROCESSING_VERSION = 15;
 export type TaskType = 'video' | 'quiz' | 'homework';
 export type TaskStatus =
   'pending' | 'submitted' | 'complete' | 'unknown' | 'review' | 'expired';
@@ -43,6 +43,14 @@ export interface RecognitionSettings {
   visionService: 'shared' | 'independent';
   visionConcurrency: number;
 }
+export interface AnswerSettings {
+  concurrency: number;
+  batchSize: number;
+}
+export const DEFAULT_ANSWER_SETTINGS: AnswerSettings = {
+  concurrency: 3,
+  batchSize: 5,
+};
 export const DEFAULT_RECOGNITION: RecognitionSettings = {
   strategy: 'ocr-first',
   imageStrategy: 'vision-first',
@@ -555,6 +563,7 @@ export interface AppState {
   platformBlock?: PlatformBlock;
   provider: PublicProvider;
   recognition: RecognitionSettings;
+  answerSettings: AnswerSettings;
   visionProvider: PublicProvider;
   events: EventRecord[];
   operations: Record<string, OperationProgress>;
@@ -579,6 +588,7 @@ export function publicProvider(p: ProviderConfig): PublicProvider {
   const { apiKey, ...rest } = p;
   return { ...rest, hasKey: Boolean(apiKey) };
 }
+/** Create independent defaults for recognition and candidate-answer requests. */
 export function initialState(): AppState {
   return {
     schema: 2,
@@ -628,6 +638,7 @@ export function initialState(): AppState {
     answerRevision: 0,
     provider: publicProvider(DEFAULT_PROVIDER),
     recognition: { ...DEFAULT_RECOGNITION },
+    answerSettings: { ...DEFAULT_ANSWER_SETTINGS },
     visionProvider: publicProvider(DEFAULT_PROVIDER),
     events: [],
     operations: {},

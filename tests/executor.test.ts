@@ -50,6 +50,7 @@ import {
   startQueue,
   resumeQueue,
   cancelChangedExecution,
+  verifyResult,
 } from '../src/background/executor';
 import { ownedTabs } from '../src/background/owned-tabs';
 import { existingAnswersDigest } from '../src/preparation';
@@ -205,6 +206,56 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
+
+it.each(['same', 'other-task', 'preview'])(
+  '服务端核验使用真实答题帧并检查跳转身份：%s',
+  async (mode) => {
+    const bound =
+      'https://mooc1.chaoxing.com/mooc-ans/work/doHomeWorkNew?courseId=100&classId=200&workId=1';
+    const card = {
+      ...task('1'),
+      url: 'https://mooc1.chaoxing.com/mooc-ans/knowledge/cards?courseid=100&clazzid=200&knowledgeid=4',
+    };
+    mock.discoverFrames.mockResolvedValue([
+      {
+        tabId: 1,
+        frameId: 2,
+        accountId: 'cx:1',
+        adapter: 'legacy',
+        taskKey: '100:200:work:1',
+        url: bound,
+        loginRequired: false,
+      },
+    ]);
+    mock.offscreen.mockImplementation(async (job) =>
+      job.op === 'fetch'
+        ? {
+            html: 'fixture',
+            url:
+              mode === 'other-task'
+                ? bound.replace('workId=1', 'workId=2')
+                : mode === 'preview'
+                  ? bound.replace('/doHomeWorkNew', '/preview')
+                  : bound,
+          }
+        : { status: 'submitted' },
+    );
+    const result = await verifyResult(1, card, new AbortController().signal, 0);
+    expect(
+      mock.offscreen.mock.calls.find(([job]) => job.op === 'fetch')![0],
+    ).toMatchObject({
+      url: bound,
+      fresh: true,
+      purpose: 'result',
+      scope: 'cx:1',
+    });
+    expect(result.status).toBe(mode === 'same' ? 'submitted' : 'unknown');
+    if (mode !== 'same')
+      expect(
+        mock.offscreen.mock.calls.some(([job]) => job.op === 'status'),
+      ).toBe(false);
+  },
+);
 async function settled() {
   for (let i = 0; i < 400; i++) {
     await Promise.resolve();

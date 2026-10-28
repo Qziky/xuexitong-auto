@@ -38,6 +38,8 @@ import {
   assertTaskCapability,
 } from '../page-workspace';
 import { answerImages } from '../image-content';
+import { answerSettingsDefaults } from '../answer-settings';
+import { solveAnswerBatches } from '../answer-batches';
 export type PreparationMode = 'full' | 'decode' | 'solve';
 type PreparationProgress = (
   note: string,
@@ -183,6 +185,7 @@ export async function generateCandidateAnswers(
   );
   return solveDecodedPage(page, policy, signal, progress, runId);
 }
+/** Generate candidates concurrently while preserving page order and write boundaries. */
 export async function solveDecodedPage(
   page: PageSnapshot,
   policy: DraftPolicy,
@@ -208,8 +211,18 @@ export async function solveDecodedPage(
       q.type !== 'unsupported',
   );
   let modelProblem: string | undefined;
+  const settings = answerSettingsDefaults(state.answerSettings);
+  /** Merge by stable question ID rather than asynchronous response order. */
+  function orderedAnswers(answers: AnswerProposal[]): AnswerProposal[] {
+    const byId = new Map(
+      [...proposals, ...answers].map((answer) => [answer.questionId, answer]),
+    );
+    return page.questions.flatMap((question) =>
+      byId.has(question.id) ? [byId.get(question.id)!] : [],
+    );
+  }
   await progress(
-    `待生成 ${needed.length} 题答案，保留 ${proposals.length} 题已有答案`,
+    `待生成 ${needed.length} 题答案，保留 ${proposals.length} 题已有答案；答题并发 ${settings.concurrency}，每批最多 ${settings.batchSize} 题`,
     { stage: 'solving', done: 0, total: needed.length },
   );
   if (
@@ -217,64 +230,65 @@ export async function solveDecodedPage(
     !provider.apiKey
   )
     throw new Error('请在设置中配置答题模型服务');
-  for (let i = 0; i < needed.length; i += 5) {
-    if (signal.aborted) throw new Error('操作已取消');
-    assertPlatformReady();
-    await progress(
-      `请求第 ${Math.floor(i / 5) + 1}/${Math.ceil(needed.length / 5)} 批答案，题号 ${needed
-        .slice(i, i + 5)
-        .map((q) => q.number)
-        .join('、')}（已返回 ${i}/${needed.length} 题）`,
-      {
-        stage: 'solving',
-        done: i,
-        total: needed.length,
-        questionNumber: needed[i]!.number,
-        code: 'solve-batch-start',
-      },
-    );
-    try {
-      proposals.push(
-        ...(await offscreen<AnswerProposal[]>(
-          {
-            op: 'solve',
-            priority:
-              runId && state.operations[runId]?.kind === 'queue' ? 1 : 0,
-            provider: { ...provider },
-            imageProvider: effectiveVisionProvider(),
-            questions: needed.slice(i, i + 5),
-            policy: solvePolicy,
-          },
-          signal,
-          runId,
-        )),
-      );
-      for (const proposal of proposals) proposal.source ??= 'model';
-      onBatch?.(structuredClone(proposals));
-      for (const q of needed.slice(i, i + 5))
-        operationEvent(
-          runId,
-          `第 ${q.number} 题候选已返回${proposals.find((p) => p.questionId === q.id)?.needsReview ? '，模型表示不确定' : '，格式校验通过'}`,
-          { code: 'answer-validated', questionNumber: q.number },
-        );
-      await progress(
-        `已返回 ${Math.min(i + 5, needed.length)}/${needed.length} 题答案`,
+  const result = await solveAnswerBatches(
+    needed,
+    settings,
+    signal,
+    // Each model request shares this operation's cancellation and global limit.
+    (batch, cancel) =>
+      offscreen<AnswerProposal[]>(
         {
-          stage: 'solving',
-          done: Math.min(i + 5, needed.length),
-          total: needed.length,
-          waiting: undefined,
-          requestStartedAt: undefined,
+          op: 'solve',
+          answerConcurrency: settings.concurrency,
+          priority: runId && state.operations[runId]?.kind === 'queue' ? 1 : 0,
+          provider: { ...provider },
+          imageProvider: effectiveVisionProvider(),
+          questions: batch,
+          policy: solvePolicy,
+        },
+        cancel,
+        runId,
+      ),
+    // Starting another batch must not reset the completed-question counter.
+    (batch, index, total, done) => {
+      assertPlatformReady();
+      operationEvent(
+        runId,
+        `请求第 ${index + 1}/${total} 批答案，题号 ${batch.map((q) => q.number).join('、')}（已返回 ${done}/${needed.length} 题）`,
+        {
+          code: 'solve-batch-start',
+          questionNumber: batch[0]!.number,
         },
       );
-    } catch (error) {
-      rethrowPlatformBlock(error);
-      if (signal.aborted || /鉴权|API Key/.test(String(error))) throw error;
-      modelProblem = error instanceof Error ? error.message : '模型求解失败';
-      break;
-    }
+    },
+    // Publish ordered candidates after each completed batch, independently of writes.
+    async (answers, batch, done) => {
+      for (const answer of answers) answer.source ??= 'model';
+      onBatch?.(structuredClone(orderedAnswers(answers)));
+      for (const q of batch)
+        operationEvent(
+          runId,
+          `第 ${q.number} 题候选已返回${answers.find((p) => p.questionId === q.id)?.needsReview ? '，模型表示不确定' : '，格式校验通过'}`,
+          { code: 'answer-validated', questionNumber: q.number },
+        );
+      await progress(`已返回 ${done}/${needed.length} 题答案`, {
+        stage: 'solving',
+        done,
+        total: needed.length,
+        waiting: undefined,
+        requestStartedAt: undefined,
+      });
+    },
+  );
+  if (result.error) {
+    rethrowPlatformBlock(result.error);
+    if (signal.aborted || /鉴权|API Key/.test(String(result.error)))
+      throw result.error;
+    modelProblem =
+      result.error instanceof Error ? result.error.message : '模型求解失败';
   }
-  return { page, proposals, modelProblem };
+  for (const answer of result.answers) answer.source ??= 'model';
+  return { page, proposals: orderedAnswers(result.answers), modelProblem };
 }
 function taskFromPage(ref: FrameRef, page: PageSnapshot): TaskRecord {
   if (!['quiz', 'homework'].includes(ref.taskKind ?? ''))
@@ -481,7 +495,7 @@ export async function prepareTask(
   }
 }
 
-/** Re-decode or re-solve a single question while keeping every other result. */
+/** Reprocess one question without changing other results or the configured model limit. */
 export async function prepareQuestion(
   taskId: string,
   questionId: string,
@@ -613,6 +627,7 @@ export async function prepareQuestion(
     const proposals = await offscreen<AnswerProposal[]>(
       {
         op: 'solve',
+        answerConcurrency: answerSettingsDefaults(state.answerSettings).concurrency,
         provider: { ...provider },
         imageProvider: effectiveVisionProvider(),
         questions: [structuredClone(currentQuestion)],

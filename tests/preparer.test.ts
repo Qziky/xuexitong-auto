@@ -37,6 +37,7 @@ import {
   cancelPreparation,
   cancelChangedPreparation,
   releasePreparationPriority,
+  solveDecodedPage,
 } from '../src/background/preparer';
 import { ownedTabs } from '../src/background/owned-tabs';
 const URL =
@@ -327,6 +328,51 @@ describe('当前页面只生成候选答案', () => {
       ).toBe(true);
     },
   );
+  it('答题设置贯通批次请求，保留已有答案并按原页面顺序合并', async () => {
+    mock.store.state.answerSettings = { concurrency: 2, batchSize: 7 };
+    mock.page.questions = Array.from({ length: 18 }, (_, index) => ({
+      ...structuredClone(mock.page.questions[0]),
+      id: String(index),
+      number: index + 1,
+      existing: index === 0 ? ['q1:o1'] : [],
+    }));
+    const gates = Array.from({ length: 3 }, () =>
+        Promise.withResolvers<void>(),
+      ),
+      calls: any[] = [],
+      progress: number[] = [];
+    mock.offscreen.mockImplementation(async (job) => {
+      const index = calls.length;
+      calls.push(job);
+      await gates[index]!.promise;
+      return job.questions.map((q: any) => ({
+        questionId: q.id,
+        optionIds: ['q1:o1'],
+        explanation: 'fixture',
+        needsReview: false,
+      }));
+    });
+    const result = solveDecodedPage(
+      mock.page,
+      'preserve',
+      new AbortController().signal,
+      async (_, detail) => {
+        if (detail?.done !== undefined) progress.push(detail.done);
+      },
+    );
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    gates[1]!.resolve();
+    await vi.waitFor(() => expect(calls).toHaveLength(3));
+    gates[2]!.resolve();
+    gates[0]!.resolve();
+    expect((await result).proposals.map((p) => p.questionId)).toEqual(
+      mock.page.questions.map((q: any) => q.id),
+    );
+    expect(calls.map((job) => job.questions.length)).toEqual([7, 7, 3]);
+    expect(calls.every((job) => job.answerConcurrency === 2)).toBe(true);
+    expect(progress).toEqual([...progress].sort((a, b) => a - b));
+    expect(progress.at(-1)).toBe(17);
+  });
   it('模型请求失败的空候选不会挡住下次重试，已确认文字继续复用', async () => {
     let solves = 0;
     mock.offscreen.mockImplementation(async (job) => {

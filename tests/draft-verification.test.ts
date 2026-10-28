@@ -41,6 +41,20 @@ const page: PageSnapshot = {
   ],
 };
 describe('草稿服务端证据', () => {
+  it('预览页面和零题页面不能解除提交保护', () => {
+    expect(serverDraftMatches(page, { ...page, pageMode: 'preview' })).toBe(
+      false,
+    );
+    expect(serverDraftMatches({ ...page, pageMode: 'preview' }, page)).toBe(
+      false,
+    );
+    expect(
+      serverDraftMatches(
+        { ...page, questions: [] },
+        { ...page, questions: [] },
+      ),
+    ).toBe(false);
+  });
   it('答案完全一致且未提交才核验成功，选项按真实键比较', () => {
     const server = structuredClone(page);
     server.fingerprint = 'new-font';

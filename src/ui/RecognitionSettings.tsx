@@ -11,6 +11,7 @@ import {
   MIN_VISION_CONCURRENCY,
 } from '../recognition-settings';
 
+/** Configure image transcription separately from candidate-answer requests. */
 export function RecognitionSettings({
   state,
   onError,
@@ -168,7 +169,7 @@ export function RecognitionSettings({
         </select>
       </label>
       <label>
-        多模态最大并发
+        多模态最大并发（图片转录）
         <input
           type="number"
           min={MIN_VISION_CONCURRENCY}
@@ -187,7 +188,7 @@ export function RecognitionSettings({
         />
       </label>
       <p className="help">
-        仅影响多模态文字转录，扩展内所有识图任务共享此上限；答题请求仍串行。数值越高越依赖服务端的并发与限流能力。
+        仅影响多模态文字转录，扩展内所有识图任务共享此上限；答题速度请在“答题请求”中设置。数值越高越依赖服务端的并发与限流能力。
       </p>
       {settings.visionService === 'shared' ? (
         <p className="help">

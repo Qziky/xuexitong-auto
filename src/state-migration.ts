@@ -3,7 +3,9 @@ import { recoverQueue } from './queue';
 import { recognitionDefaults } from './recognition-settings';
 import { selectedLearningTypes } from './learning-policy';
 import { upgradeLearningSettings } from './learning-settings';
+import { answerSettingsDefaults } from './answer-settings';
 
+/** Upgrade durable state, including defaults for previously absent answer settings. */
 export function migrateState(saved: unknown): AppState {
   const initial = initialState();
   if (!saved || typeof saved !== 'object') return initial;
@@ -18,6 +20,7 @@ export function migrateState(saved: unknown): AppState {
     ...durable,
     schema: 2,
     recognition: recognitionDefaults(old.recognition),
+    answerSettings: answerSettingsDefaults(old.answerSettings),
     learningSettings: upgradeLearningSettings(old.learningSettings),
     visionProvider: { ...initial.visionProvider, ...old.visionProvider },
     homeworkCache: old.schema === 2 ? (old.homeworkCache ?? {}) : {},

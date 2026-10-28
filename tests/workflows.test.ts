@@ -321,6 +321,7 @@ describe('分步工作台实际后台流程', () => {
     expect(mock.events.every((e) => e.runId === first.operationId)).toBe(true);
   });
   it('单题重做只生成新候选，保留网页答案且不填写', async () => {
+    mock.store.state.answerSettings = { concurrency: 50, batchSize: 5 };
     mock.page.questions[0].existing = ['q1:o2'];
     await action('decode');
     await action('solve');
@@ -338,6 +339,7 @@ describe('分步工作台实际后台流程', () => {
     );
     expect(mock.offscreen.mock.calls.at(-1)?.[0]).toMatchObject({
       op: 'solve',
+      answerConcurrency: 50,
       policy: 'overwrite',
       questions: [{ id: 'q1' }],
     });

@@ -16,6 +16,7 @@ import {
   persist,
   state,
   saveRecognition,
+  saveAnswerSettings,
   saveProvider,
   effectiveVisionProvider,
   exportDiagnostics,
@@ -122,6 +123,19 @@ describe('候选答案只在可信会话存储中保存', () => {
     expect(saved.recognition.imageStrategy).toBe('ocr-only');
     expect(state.providerRevision).toBe(imageRevision + 1);
     expect(state.preparations).toEqual({});
+  });
+  it('独立保存答题调度，不改变识图配置、答案修订或已有候选', async () => {
+    await initStore();
+    const recognition = structuredClone(state.recognition),
+      revision = state.answerRevision;
+    await saveAnswerSettings({ concurrency: 50, batchSize: 12 });
+    expect(saved.answerSettings).toEqual({ concurrency: 50, batchSize: 12 });
+    expect(state.recognition).toEqual(recognition);
+    expect(state.answerRevision).toBe(revision);
+    await expect(
+      saveAnswerSettings({ concurrency: 51, batchSize: 5 }),
+    ).rejects.toThrow('1 至 50');
+    expect(state.answerSettings.concurrency).toBe(50);
   });
   it('无效识别设置和视觉请求参数不修改当前配置', async () => {
     await initStore();

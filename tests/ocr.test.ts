@@ -628,6 +628,40 @@ describe('文字识别策略与有限兜底', () => {
     expect(restored.questions[0]!.stem).toBe(recognized);
     expect(restored.questions[0]!.issues).toEqual(['原有非识别问题']);
   });
+  it.each([
+    ['示例（ ）', '示例___'],
+    ['示例（\u00a0 ）B', '示例___B'],
+    ['示例（ ）D、（ ）O、（ ）H', '示例___D、___O、___H'],
+    ['示例=', '示例=____'],
+    ['示例＿＿＿＿', '示例____'],
+    ['(a+b)=（ ）', '(a+b)=___'],
+  ])('识别等价填空布局并保留真实数学括号：%s', (source, recognized) => {
+    const count = source.includes('、') ? 3 : 1;
+    const context = {
+      questionType: 'blank' as const,
+      part: 'stem' as const,
+      blankCount: count,
+    };
+    expect(validateRecognitionMarkers(source, recognized, context)).toEqual({
+      valid: true,
+    });
+    expect(comparableText(source, context)).toBe(
+      comparableText(recognized, context),
+    );
+  });
+  it('填空括号归一化仍拒绝缺空或丢失非空数学括号', () => {
+    const context = {
+      questionType: 'blank' as const,
+      part: 'stem' as const,
+      blankCount: 1,
+    };
+    expect(
+      validateRecognitionMarkers('(a+b)=（ ）', 'a+b=___', context).valid,
+    ).toBe(false);
+    expect(validateRecognitionMarkers('示例（ ）', '示例', context).valid).toBe(
+      false,
+    );
+  });
   it('填空数量、编号顺序或括号变化继续进入检查；代码下划线仍按原文比较', () => {
     const source = '云服务：1.____2.____3.可靠性 5.____6.____';
     const context = {
