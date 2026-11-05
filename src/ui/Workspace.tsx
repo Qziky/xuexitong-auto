@@ -7,6 +7,14 @@ import type {
 } from '../domain';
 import { taskCapabilities } from '../page-workspace';
 import { answerImages } from '../image-content';
+import { completeAnswer, existingProposal } from '../answers';
+/** 按实际回读的网页答案计数，避免把候选答案或已填子集当成整份完成。 */
+function incompleteQuestions(record?: TaskPreparation): number {
+  return record?.snapshot?.questions.filter(
+    (question) => !completeAnswer(question, existingProposal(question), true),
+  ).length ?? 0;
+}
+/** 只有真实答案全部完整且回读通过时，才进入保存或提交步骤。 */
 export function workspaceStep(state: AppState, taskId: string): number {
   const workflow = state.workflows[taskId],
     record = state.preparations[taskId];
@@ -23,9 +31,14 @@ export function workspaceStep(state: AppState, taskId: string): number {
   }
   if (!record?.decoded) return 0;
   if (!record.proposals?.some((p) => p.source !== 'own')) return 1;
-  if (!workflow?.filled || !workflow.readbackVerified) return 2;
+  if (
+    !workflow?.filled ||
+    !workflow.readbackVerified ||
+    incompleteQuestions(record)
+  ) return 2;
   return 3;
 }
+/** 展示实际完成阶段，部分填写时指出剩余题目并保留草稿保存入口。 */
 export function Workspace({
   state,
   task,
@@ -75,6 +88,7 @@ export function Workspace({
   const answerReview = (record?.proposals ?? []).filter(
     (p) => p.needsReview,
   ).length;
+  const incomplete = incompleteQuestions(record);
   const labels = readonly
     ? ['识别文字', '生成参考']
     : ['识别文字', '生成参考', '填写答案', '保存或提交'];
@@ -89,9 +103,11 @@ export function Workspace({
       : questions.some((question) => answerImages(question).length)
         ? '文字与原图材料已准备。生成参考会结合原图作答，不修改网页。'
         : '文字已确认。生成参考只提供答案，不修改网页。',
-    answerReview
-      ? answerReview + ' 道参考需检查。提交前需要核对，草稿可保留候选。'
-      : '参考已生成。填写前会重新核对页面和已有答案。',
+    workflow?.filled && incomplete
+      ? `还有 ${incomplete} 道题未填写完成，请查看题目与答案。`
+      : answerReview
+        ? answerReview + ' 道参考需检查。提交前需要核对，草稿可保留候选。'
+        : '参考已生成。填写前会重新核对页面和已有答案。',
     finished
       ? '平台已确认提交。'
       : workflow?.draftVerified
@@ -193,13 +209,23 @@ export function Workspace({
             </button>
           ))}
         {step === 2 && !readonly && (
-          <button
-            className="primary main-action"
-            disabled={busy || !capability.fill}
-            onClick={() => onAction('fill')}
-          >
-            填写答案
-          </button>
+          <>
+            <button
+              className="primary main-action"
+              disabled={busy || !capability.fill}
+              onClick={() => onAction('fill')}
+            >
+              填写答案
+            </button>
+            {workflow?.filled && workflow.readbackVerified && (
+              <button
+                disabled={busy || !capability.save}
+                onClick={() => onAction('draft')}
+              >
+                保存当前草稿
+              </button>
+            )}
+          </>
         )}
         {step === 3 && !readonly && !finished && !workflow?.submitAttempted && (
           <div className="final-actions">

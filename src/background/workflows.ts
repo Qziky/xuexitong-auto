@@ -243,6 +243,7 @@ export function startTaskAction(
   void persist();
   return { operationId: runId };
 }
+/** 执行用户选择的步骤；区分部分写入回读和整份答案填写完整。 */
 async function execute(
   task: TaskRecord,
   action: TaskAction,
@@ -395,12 +396,14 @@ async function execute(
       );
       // Keep restored text while adopting the actual post-write answer state.
       adoptAnswers(record, filled.readback);
-      record.phase = 'filled';
+      record.phase = filled.complete ? 'filled' : 'review';
       await finishOperation(
         runId,
-        filled.verified ? 'waiting-user' : 'review',
+        filled.complete ? 'waiting-user' : 'review',
         filled.verified
-          ? '答案已填写，回读一致；请选择保存草稿或提交'
+          ? filled.complete
+            ? '答案已填写，回读一致；请选择保存草稿或提交'
+            : '仅部分答案已填写并回读，仍有空题或待检查题目，请查看题目与答案'
           : '回读不一致，禁止提交，请检查平台答案',
       );
       return;

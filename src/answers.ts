@@ -1,11 +1,14 @@
 import type { AnswerProposal, DraftPolicy, QuestionRecord } from './domain';
+import { isTextEntryType } from './domain';
 
+/** 按保留策略判断题目是否还需要生成答案。 */
 export function needsSolve(q: QuestionRecord, policy: DraftPolicy): boolean {
   if (q.type === 'unsupported' || q.issues.length) return false;
   if (policy === 'overwrite') return true;
-  if (q.type === 'blank') return q.blanks.some((b) => !b.value.trim());
+  if (isTextEntryType(q.type)) return q.blanks.some((b) => !b.value.trim());
   return q.existing.length === 0;
 }
+/** 校验模型的题目 ID、答案数量和内容，并保留已有的文本答案。 */
 export function normalizeProposal(
   q: QuestionRecord,
   raw: unknown,
@@ -26,13 +29,14 @@ export function normalizeProposal(
     explanation: a.explanation.slice(0, 3000),
     source: 'model',
   };
-  if (q.type === 'blank') {
+  if (isTextEntryType(q.type)) {
     if (
+      q.blanks.length === 0 ||
       !Array.isArray(a.blanks) ||
       a.blanks.length !== q.blanks.length ||
       a.blanks.some((v) => typeof v !== 'string' || v.length > 2000)
     )
-      throw new Error(`第 ${q.number} 题填空数量或内容无效`);
+      throw new Error(`第 ${q.number} 题文本答案数量或内容无效`);
     result.blanks = a.blanks.map((v, i) =>
       policy === 'preserve' && q.blanks[i]?.value.trim()
         ? q.blanks[i]!.value
@@ -85,10 +89,11 @@ export function validateBatch(
     ),
   );
 }
+/** 将网页已有的选择、填空或正文答案转为统一候选结构。 */
 export function existingProposal(q: QuestionRecord): AnswerProposal {
   return {
     questionId: q.id,
-    ...(q.type === 'blank'
+    ...(isTextEntryType(q.type)
       ? { blanks: q.blanks.map((b) => b.value) }
       : { optionIds: [...q.existing] }),
     explanation: '保留已有答案',
@@ -96,6 +101,7 @@ export function existingProposal(q: QuestionRecord): AnswerProposal {
     needsReview: false,
   };
 }
+/** 只有位置数量吻合且内容非空的答案，才视为完整答案。 */
 export function completeAnswer(
   q: QuestionRecord,
   proposal?: AnswerProposal,
@@ -108,8 +114,9 @@ export function completeAnswer(
     (proposal.needsReview && !allowUncertain)
   )
     return false;
-  if (q.type === 'blank')
+  if (isTextEntryType(q.type))
     return (
+      q.blanks.length > 0 &&
       proposal.blanks?.length === q.blanks.length &&
       proposal.blanks.every((b) => b.trim().length > 0)
     );
@@ -120,6 +127,7 @@ export function completeAnswer(
     ids.every((id) => q.options.some((o) => o.id === id))
   );
 }
+/** 核对填写后重新读取的答案，防止文本写入失败被当成成功。 */
 export function readbackMatches(
   questions: QuestionRecord[],
   proposals: AnswerProposal[],
@@ -127,7 +135,7 @@ export function readbackMatches(
   return proposals.every((a) => {
     const q = questions.find((q) => q.id === a.questionId);
     if (!q) return false;
-    if (q.type === 'blank')
+    if (isTextEntryType(q.type))
       return (
         q.blanks.length === a.blanks?.length &&
         q.blanks.every(

@@ -158,8 +158,11 @@ describe('两种答题页面', () => {
     expect(page.questions[0]!.stem).toContain('参数 a=3,b=4');
     expect(page.questions[0]!.stem).not.toContain('(单选题)');
     expect(page.questions[1]!.existing).toEqual(['q900012:o1', 'q900012:o3']);
-    expect(page.questions[3]!.type).toBe('unsupported');
-    expect(page.questions[3]!.issues).toContain('不支持的题型，需人工处理');
+    expect(page.questions[3]!.type).toBe('text');
+    expect(page.questions[3]!.blanks).toEqual([
+      { id: 'answer900014', kind: 'textarea', value: '' },
+    ]);
+    expect(page.questions[3]!.issues).toEqual([]);
   });
   it('答案变化不改变快照，题目或真实答案键变化会改变快照', () => {
     const doc = inertDocument(fixture('modern'));

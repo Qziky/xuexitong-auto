@@ -1,4 +1,5 @@
 import type { AnswerProposal, PageSnapshot } from './domain';
+import { isTextEntryType } from './domain';
 import type { Binding } from './messages';
 import { extractPage } from './page-parser';
 import { rpc } from './messages';
@@ -15,6 +16,7 @@ export function visible(el: Element | null | undefined): el is HTMLElement {
     el.getClientRects().length > 0
   );
 }
+/** 从当前页面和已初始化的富文本编辑器读取真实答案。 */
 export async function liveSnapshot(): Promise<PageSnapshot | undefined> {
   const page = extractPage(document, location.href, document.cookie);
   if (!page) return undefined;
@@ -33,7 +35,7 @@ export async function liveSnapshot(): Promise<PageSnapshot | undefined> {
       q.blanks.forEach((b) => {
         if (b.kind === 'ueditor') b.value = values[b.id] ?? '';
       });
-      if (q.type === 'blank') q.existing = q.blanks.map((b) => b.value);
+      if (isTextEntryType(q.type)) q.existing = q.blanks.map((b) => b.value);
     });
   }
   return page;
@@ -82,6 +84,7 @@ export async function authorizeWrite(
   if (!binding?.operationId) return;
   await rpc({ target: 'background', kind: 'authorize-write', binding, action });
 }
+/** 在绑定与授权核验后，按真实输入位置填写并重新读取答案。 */
 export async function fillPage(
   binding: Binding,
   proposals: AnswerProposal[],
@@ -107,9 +110,15 @@ export async function fillPage(
       throw new Error('填写目标无法确认');
     const root = rootFor(page, q.id);
     if (!root) throw new Error('题目节点已变化');
-    if (q.type === 'blank') {
-      if (!proposal.blanks || proposal.blanks.length !== q.blanks.length)
-        throw new Error('填空数量不一致');
+    if (isTextEntryType(q.type)) {
+      if (
+        !proposal.blanks ||
+        proposal.blanks.length !== q.blanks.length ||
+        proposal.blanks.some(
+          (value) => typeof value !== 'string' || value.length > 2000,
+        )
+      )
+        throw new Error('文本答案数量或内容无效');
       const editorValues: { id: string; value: string }[] = [];
       for (let i = 0; i < q.blanks.length; i++) {
         const b = q.blanks[i]!;
@@ -128,9 +137,11 @@ export async function fillPage(
           ) ||
           !root.contains(input) ||
           input.disabled ||
-          input.readOnly
+          input.readOnly ||
+          input.hidden ||
+          getComputedStyle(input).display === 'none'
         )
-          throw new Error('填空位置不可编辑');
+          throw new Error('文本位置不可编辑或是隐藏同步字段，请重新识别编辑器');
         const proto =
           input instanceof HTMLTextAreaElement
             ? HTMLTextAreaElement.prototype

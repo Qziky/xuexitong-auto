@@ -3,6 +3,20 @@ type AnswerQuestion = Pick<
   QuestionRecord,
   'id' | 'type' | 'options' | 'blanks'
 >;
+/** 将正文 HTML 还原为纯文本，保留换行并避免分数、脚本混入答案。 */
+export function textAnswerContent(node: Node): string {
+  const copy = node.cloneNode(true) as Element | DocumentFragment;
+  copy
+    .querySelectorAll('script,style,.scoreNum')
+    .forEach((part) => part.remove());
+  copy.querySelectorAll('br').forEach((part) => part.replaceWith('\n'));
+  copy.querySelectorAll('p,div,li').forEach((part) => part.append('\n'));
+  return (copy.textContent ?? '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[\t ]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
 function ordinal(text: string): number | undefined {
   if (/^\d+$/.test(text)) return Number(text);
   const digits = '零一二三四五六七八九';
@@ -53,6 +67,7 @@ export function displayedBlanks(
     ? values.map((v) => v.value)
     : undefined;
 }
+/** 读取平台明确标注的答案；多框正文按平台空位分组，不按题干横线拆分。 */
 function parseAnswer(
   el: Element,
   question: AnswerQuestion,
@@ -80,7 +95,11 @@ function parseAnswer(
     question.type === 'blank'
       ? region
       : (explicit ?? region.querySelector('.answerCon') ?? region);
-  const value = (content.textContent ?? '')
+  const value = (
+    question.type === 'text'
+      ? textAnswerContent(content)
+      : (content.textContent ?? '')
+  )
     .replace(
       source === 'own'
         ? /^.*?(?:我的答案|本人答案)\s*[:：]?\s*/
@@ -94,6 +113,16 @@ function parseAnswer(
     explanation: source === 'own' ? '页面显示的本人答案' : '平台明确公布的答案',
     source,
   };
+  if (question.type === 'text') {
+    const grouped = displayedBlanks(el, source);
+    if (grouped)
+      return grouped.length === question.blanks.length
+        ? { ...base, blanks: grouped }
+        : undefined;
+    return value && question.blanks.length === 1
+      ? { ...base, blanks: [value] }
+      : undefined;
+  }
   if (question.type === 'blank') {
     const grouped = displayedBlanks(el, source);
     const blanks =

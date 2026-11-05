@@ -1,5 +1,6 @@
 import {
   PAGE_TEXT_PROCESSING_VERSION,
+  isTextEntryType,
   type BlankRecord,
   type PageSnapshot,
   type QuestionRecord,
@@ -21,7 +22,9 @@ import {
   readPublishedAnswer,
   readOwnAnswer,
   displayedBlanks,
+  textAnswerContent,
 } from './published-answer';
+import { blankMarkers } from './recognition-settings';
 
 /** Normalize text from elements or inert template fragments. */
 export function textOf(node: Node | null | undefined): string {
@@ -75,6 +78,48 @@ export function taskKeyFromUrl(url: string, doc?: Document): string {
   const { course, clazz, work } = taskIdentifiers(url, doc);
   return work ? `${course}:${clazz}:work:${work}` : '';
 }
+/** 收集题目自己的文本输入位置，排除编辑器工具栏和内部辅助控件。 */
+function answerInputs(el: Element): HTMLElement[] {
+  return [
+    ...el.querySelectorAll<HTMLElement>(
+      '[id^="answerEditor"], [id^="textarea"], script[id^="answer"][type="text/plain"], textarea, input[type="text"], input:not([type])',
+    ),
+  ].filter(
+    (node) =>
+      !!node.id &&
+      !node.closest('.edui-editor-toolbarbox') &&
+      !node.id.startsWith('edui') &&
+      !node.parentElement?.closest('[id^="answerEditor"], [id^="textarea"]'),
+  );
+}
+
+/** 识别 UEditor 的真实绑定节点，包括新版页面隐藏的 answer… 同步字段。 */
+function isRichTextEditor(node: HTMLElement): boolean {
+  if (node.tagName === 'INPUT') return false;
+  if (
+    node.tagName === 'SCRIPT' ||
+    node.id.startsWith('answerEditor') ||
+    (node.tagName === 'DIV' && node.id.startsWith('textarea'))
+  ) return true;
+  if (node.tagName !== 'TEXTAREA' || !/^(?:answer|textarea)\d+$/.test(node.id))
+    return false;
+  // 只读取页面的初始化声明，绝不执行脚本；服务端草稿尚无 iframe 也能识别。
+  const question = node.closest('.questionLi,.TiMu');
+  const declaration = new RegExp(
+    `\\bUE\\s*\\.\\s*getEditor\\s*\\(\\s*(["'])${node.id}\\1`,
+  );
+  if ([...(question?.querySelectorAll('script') ?? [])].some(
+    (script) => declaration.test(script.textContent ?? ''),
+  ))
+    return true;
+  // 初始化后 UEditor 将 textarea 隐藏，并在同一局部容器插入可见编辑器。
+  return (
+    (node.hidden || node.style.display === 'none') &&
+    node.parentElement?.querySelectorAll('.edui-editor').length === 1
+  );
+}
+
+/** 优先读取平台题型；无类型名称时只按明确的文本控件结构回退。 */
 function questionType(el: Element): QuestionType {
   const type =
     el.getAttribute('typename') ??
@@ -83,14 +128,31 @@ function questionType(el: Element): QuestionType {
   if (/单选/.test(type)) return 'single';
   if (/判断/.test(type)) return 'boolean';
   if (/填空/.test(type)) return 'blank';
+  if (/简答|计算|论述|问答|解答/.test(type)) return 'text';
   const code =
     el.querySelector('[qtype]')?.getAttribute('qtype') ??
     (el.classList.contains('TiMu') ? el.getAttribute('data') : undefined);
-  return (
-    ({ '0': 'single', '1': 'multiple', '2': 'blank', '3': 'boolean' } as const)[
-      code ?? ''
-    ] ?? 'unsupported'
-  );
+  const known = (
+    { '0': 'single', '1': 'multiple', '2': 'blank', '3': 'boolean' } as const
+  )[code ?? ''];
+  if (known) return known;
+  // 不把附件、连线等已有明确名称的特殊题型猜成文字题。
+  if (
+    type.trim() &&
+    !/^[【(（]?其[他它](?:题型|题)?[】)）]?$/.test(type.trim())
+  )
+    return 'unsupported';
+  if (
+    editableChoiceElements(el).length ||
+    el.querySelector('audio,video,[type="file"]')
+  )
+    return 'unsupported';
+  const inputs = answerInputs(el);
+  if (inputs.length === 1) return 'text';
+  const stem = textOf(el.querySelector('.mark_name, .Zy_TItle'));
+  return inputs.length > 1 && blankMarkers(stem).length === inputs.length
+    ? 'blank'
+    : 'unsupported';
 }
 function inputValue(doc: Document, id: string): string {
   return (doc.getElementById(id) as HTMLInputElement | null)?.value ?? '';
@@ -227,12 +289,14 @@ function isEncoded(el: Element | null, url: string): boolean {
 }
 
 /** Read saved HTML before UEditor has created its iframe, without activating markup. */
-function serverEditorText(node: HTMLElement): string {
+function serverEditorText(node: HTMLElement, multiline = false): string {
   if (node.tagName === 'SCRIPT' || node.tagName === 'TEXTAREA') {
     const template = node.ownerDocument.createElement('template');
     template.innerHTML =
       (node as HTMLTextAreaElement).value ?? node.textContent ?? '';
-    return textOf(template.content);
+    return multiline
+      ? textAnswerContent(template.content)
+      : textOf(template.content);
   }
   return textOf(
     node.querySelector('.edui-editor-iframeholder iframe')?.parentElement,
@@ -343,22 +407,13 @@ export function readQuestion(
     })
     .map((o) => o.id);
   const blanks: BlankRecord[] = [];
-  if (type === 'blank') {
-    const editors = [
-      ...el.querySelectorAll<HTMLElement>(
-        '[id^="answerEditor"], [id^="textarea"], textarea, input[type="text"], input:not([type])',
-      ),
-    ].filter(
-      (n) => !n.closest('.edui-editor-toolbarbox') && !n.id?.startsWith('edui'),
-    );
+  if (isTextEntryType(type)) {
+    const editors = answerInputs(el);
     for (const node of editors) {
-      const editor =
-        node.tagName !== 'INPUT' &&
-        (node.id.startsWith('answerEditor') ||
-          (node.tagName === 'DIV' && /textarea/.test(node.id)));
+      const editor = isRichTextEditor(node);
       if (blanks.some((b) => b.id === node.id) || !node.id) continue;
       const value = editor
-        ? serverEditorText(node)
+        ? serverEditorText(node, type === 'text')
         : ((node as HTMLInputElement).value ?? '');
       blanks.push({
         id: node.id,
@@ -375,9 +430,11 @@ export function readQuestion(
       const displayed =
         displayedBlanks(el, 'own') ?? displayedBlanks(el, 'platform');
       const count =
-        displayed?.length ??
-        stem.match(/_{2,}|＿{2,}|（\s*）|\(\s*\)/g)?.length ??
-        0;
+        type === 'text'
+          ? (displayed?.length ?? 1)
+          : (displayed?.length ??
+            stem.match(/_{2,}|＿{2,}|（\s*）|\(\s*\)/g)?.length ??
+            0);
       for (let n = 0; n < count; n++)
         blanks.push({
           id: 'readonly:' + id + ':' + n,
@@ -388,7 +445,7 @@ export function readQuestion(
   }
   if (readonly) {
     const own = readOwnAnswer(el, { id, type, options, blanks });
-    if (type === 'blank' && own?.blanks) {
+    if (isTextEntryType(type) && own?.blanks) {
       blanks.forEach((blank, i) => {
         blank.value = own.blanks![i] ?? '';
       });
@@ -414,6 +471,8 @@ export function readQuestion(
     issues.push('选项内容或答案键不完整');
   if (type === 'blank' && blanks.length === 0)
     issues.push('未识别到填空输入位置');
+  if (type === 'text' && blanks.length === 0)
+    issues.push('未识别到文本作答位置');
   return {
     id,
     number: index + 1,

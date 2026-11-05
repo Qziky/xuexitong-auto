@@ -106,6 +106,7 @@ it('reading pace has an independent settings entry with the supported range and 
   expect(html).toContain('value="0.25"');
   expect(html).toContain('优先 2 倍速');
 });
+/** 构造已识别但尚未填写的页面，保留真实选项以校验回读完成状态。 */
 function ready() {
   const state = initialState();
   state.provider.hasKey = true;
@@ -136,7 +137,10 @@ function ready() {
           number: 1,
           type: 'single',
           stem: '题目',
-          options: [],
+          options: [
+            { id: 'q:o1', key: 'A', label: 'A', text: '合成选项一' },
+            { id: 'q:o2', key: 'B', label: 'B', text: '合成选项二' },
+          ],
           existing: [],
           blanks: [],
           issues: [],
@@ -208,6 +212,8 @@ it('stage depends on confirmed data; incomplete readback never advances to submi
   };
   expect(workspaceStep(state, 't')).toBe(2);
   state.workflows.t.readbackVerified = true;
+  expect(workspaceStep(state, 't')).toBe(2);
+  state.preparations.t!.snapshot!.questions[0]!.existing = ['q:o1'];
   expect(workspaceStep(state, 't')).toBe(3);
 });
 it('opening a detected page renders one primary recognition button without invoking actions', () => {
@@ -252,8 +258,9 @@ it('read-only reference has no fill, save, submit or complete actions', () => {
 });
 it('a server-verified draft remains at the submission checkpoint', () => {
   const state = ready();
+  state.preparations.t!.snapshot!.questions[0]!.existing = ['q:o1'];
   state.preparations.t!.proposals = [
-    { questionId: 'q', needsReview: false, source: 'model', explanation: '' },
+    { questionId: 'q', optionIds: ['q:o1'], needsReview: false, source: 'model', explanation: '' },
   ];
   state.workflows.t = {
     taskId: 't',
