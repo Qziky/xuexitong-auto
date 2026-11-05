@@ -175,7 +175,10 @@ describe('文本作答与多空计算题', () => {
         ]);
         saved = message.values[0].value;
       }
-      return { ok: true, value: { answerEditor101: saved } };
+      return { ok: true, value: { answerEditor101: {
+        html: saved.replace(/\n/g, '<br>'),
+        text: saved.replace(/\n/g, ''),
+      } } };
     });
     vi.stubGlobal('chrome', { runtime: { sendMessage } });
     const proposal = {

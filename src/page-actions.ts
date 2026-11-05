@@ -1,10 +1,11 @@
 import type { AnswerProposal, PageSnapshot } from './domain';
 import { isTextEntryType } from './domain';
-import type { Binding } from './messages';
+import type { Binding, EditorContent } from './messages';
 import { extractPage } from './page-parser';
 import { rpc } from './messages';
 import { existingAnswersDigest } from './preparation';
 import { editableChoiceElements } from './choice-elements';
+import { textAnswerContent } from './published-answer';
 
 export function visible(el: Element | null | undefined): el is HTMLElement {
   if (!(el instanceof HTMLElement)) return false;
@@ -16,7 +17,7 @@ export function visible(el: Element | null | undefined): el is HTMLElement {
     el.getClientRects().length > 0
   );
 }
-/** 从当前页面和已初始化的富文本编辑器读取真实答案。 */
+/** 正文从惰性 HTML 模板还原换行，与服务端快照一致；填空沿用原纯文本。 */
 export async function liveSnapshot(): Promise<PageSnapshot | undefined> {
   const page = extractPage(document, location.href, document.cookie);
   if (!page) return undefined;
@@ -24,7 +25,7 @@ export async function liveSnapshot(): Promise<PageSnapshot | undefined> {
     q.blanks.filter((b) => b.kind === 'ueditor').map((b) => b.id),
   );
   if (ids.length) {
-    const values = await rpc<Record<string, string>>({
+    const values = await rpc<Record<string, EditorContent>>({
       target: 'background',
       kind: 'editor',
       action: 'read',
@@ -33,7 +34,15 @@ export async function liveSnapshot(): Promise<PageSnapshot | undefined> {
     });
     page.questions.forEach((q) => {
       q.blanks.forEach((b) => {
-        if (b.kind === 'ueditor') b.value = values[b.id] ?? '';
+        if (b.kind !== 'ueditor') return;
+        const content = values[b.id];
+        if (!content || typeof content.html !== 'string' || typeof content.text !== 'string')
+          throw new Error('无法读取编辑器正文，请重新加载扩展和课程页');
+        if (q.type === 'text') {
+          const template = document.createElement('template');
+          template.innerHTML = content.html;
+          b.value = textAnswerContent(template.content);
+        } else b.value = content.text;
       });
       if (isTextEntryType(q.type)) q.existing = q.blanks.map((b) => b.value);
     });

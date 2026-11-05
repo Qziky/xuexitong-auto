@@ -3,6 +3,8 @@ import { initialState } from '../src/domain';
 import { extractPage } from '../src/page-parser';
 import { inertDocument } from '../src/scan-parser';
 import { fillPage, liveSnapshot } from '../src/page-actions';
+import { normalizeProposal, readbackMatches } from '../src/answers';
+import { serverDraftMatches } from '../src/draft-verification';
 const mock = vi.hoisted(() => ({ state: undefined as any }));
 vi.mock('../src/background/store', () => mock);
 import { editorBridge } from '../src/background/editor';
@@ -23,8 +25,8 @@ function question(id: string, multiple = false): string {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); delete (window as any).UE; });
 
 describe('简答题 UEditor 隐藏同步字段', () => {
-  it.each([false, true])('通过实际 editorBridge 写入可见正文并按框回读（多框题=%s）', async (multiple) => {
-    document.body.innerHTML = '<div class="workTitle">示例 未交</div>' + question('101', multiple) + question('102');
+  it.each([false, true])('通过实际 editorBridge 保留及填写多行正文并按框回读（多框题=%s）', async (multiple) => {
+    document.body.innerHTML = '<input name="uid" value="1"><div class="workTitle">示例 未交</div>' + question('101', multiple) + question('102');
     (window as any).happyDOM.setURL(url);
     const before = extractPage(document, url)!;
     expect(before.questions.map((q) => q.blanks[0]!.kind)).toEqual(['ueditor', 'ueditor']);
@@ -37,9 +39,13 @@ describe('简答题 UEditor 隐藏同步字段', () => {
       const body = field.parentElement!.querySelector('iframe')!.contentDocument!.body;
       // 模拟上一版留下的隐藏值；真实正文为空时必须以正文为准。
       field.value = '旧的隐藏值';
+      if (editorId === editorIds[0])
+        body.innerHTML = '<p>已有第一行 &lt; 200</p><p>已有第二行</p>';
       instances[field.id] = {
         ready: (callback: () => void) => callback(),
         setContent: vi.fn((html: string) => { body.innerHTML = html; }),
+        getContent: () => body.innerHTML,
+        // 复现 UEditor 非 IE 的真实行为：textContent 会丢掉 br 和段落间换行。
         getContentTxt: () => body.textContent ?? '',
         fireEvent: vi.fn(),
         sync: vi.fn(() => { field.value = body.innerHTML; }),
@@ -58,17 +64,36 @@ describe('简答题 UEditor 隐藏同步字段', () => {
       })) },
     });
     const live = (await liveSnapshot())!;
-    expect(live.questions.map((q) => q.existing)).toEqual([multiple ? ['', ''] : [''], ['']]);
-    const proposals = before.questions.map((q) => ({ questionId: q.id, blanks: q.blanks.map((b) => `合成结果 ${b.id} < 200`), explanation: '', needsReview: false }));
+    const preserved = '已有第一行 < 200\n已有第二行';
+    expect(live.questions.map((q) => q.existing)).toEqual([multiple ? [preserved, ''] : [preserved], ['']]);
+    const proposals = live.questions.map((q) => normalizeProposal(q, {
+      questionId: q.id,
+      blanks: q.blanks.map((b) => `合成结果 ${b.id} < 200\n第二行\n\n第四行`),
+      explanation: '', needsReview: false,
+    }, 'preserve'));
     const after = await fillPage({ taskKey: before.taskKey, fingerprint: before.fingerprint }, proposals);
     for (const editorId of editorIds) {
       const field = document.getElementById(editorId) as HTMLTextAreaElement;
       const body = field.parentElement!.querySelector('iframe')!.contentDocument!.body;
-      expect(body.textContent).toBe(`合成结果 ${editorId} < 200`);
-      expect(field.value).toContain('&lt;');
-      expect(instances[field.id].sync).toHaveBeenCalledOnce();
+      const expected = editorId === editorIds[0]
+        ? preserved : `合成结果 ${editorId} < 200\n第二行\n\n第四行`;
+      expect(body.textContent).toBe(expected.replace(/\n/g, ''));
+      if (editorId === editorIds[0]) {
+        expect(instances[field.id].setContent).not.toHaveBeenCalled();
+        expect(field.value).toBe('旧的隐藏值');
+      } else {
+        expect(field.value).toContain('&lt;');
+        expect(instances[field.id].sync).toHaveBeenCalledOnce();
+        expect(field.value).toContain('<br>');
+      }
     }
     expect(after.questions.map((q) => q.existing)).toEqual(proposals.map((a) => a.blanks));
+    expect(readbackMatches(after.questions, proposals)).toBe(true);
+    const serverDocument = inertDocument(document.body.innerHTML);
+    for (const editorId of editorIds)
+      serverDocument.getElementById(editorId)!.textContent = instances[editorId].getContent();
+    const server = extractPage(serverDocument, url)!;
+    expect(serverDraftMatches(after, server)).toBe(true);
   });
 
   it('离线服务端草稿按初始化声明识别编辑器，并解码 HTML 内容', () => {
