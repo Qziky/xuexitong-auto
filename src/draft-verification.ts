@@ -1,7 +1,8 @@
 import type { PageSnapshot } from './domain';
+import { isTextEntryType } from './domain';
 import { normalizeText } from './answers';
 
-/** Verify real platform option keys; display order and encrypted font may change. */
+/** 核验服务端的文本内容或真实选项键，不能仅凭本地填写判断已保存。 */
 export function serverDraftMatches(
   expected: PageSnapshot,
   server?: PageSnapshot,
@@ -22,7 +23,7 @@ export function serverDraftMatches(
   return expected.questions.every((q) => {
     const other = server.questions.find((r) => r.id === q.id);
     if (!other || other.type !== q.type || other.issues.length) return false;
-    if (q.type === 'blank')
+    if (isTextEntryType(q.type))
       return (
         q.blanks.length === other.blanks.length &&
         q.blanks.every(

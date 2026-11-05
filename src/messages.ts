@@ -56,6 +56,11 @@ export interface Binding {
   accountId?: string;
   existingDigest?: string;
 }
+/** 正文保留 HTML 分行信息；旧填空题继续采用原来的纯文本读值。 */
+export interface EditorContent {
+  html: string;
+  text: string;
+}
 export interface FrameInfo {
   learningCardIdentity?: {
     chapterId: string;

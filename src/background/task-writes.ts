@@ -1,4 +1,5 @@
 import type { AnswerProposal, PageSnapshot, TaskRecord } from '../domain';
+import { isTextEntryType } from '../domain';
 import type { Binding } from '../messages';
 import { completeAnswer, readbackMatches, existingProposal } from '../answers';
 import { assertTaskCapability } from '../page-workspace';
@@ -57,6 +58,7 @@ export async function assertCurrent(
   });
   return current;
 }
+/** 筛选有可靠作答位置、有效内容的选择或文本答案。 */
 export function writableAnswers(
   page: PageSnapshot,
   proposals: AnswerProposal[],
@@ -67,13 +69,14 @@ export function writableAnswers(
       q &&
       !q.issues.length &&
       q.type !== 'unsupported' &&
-      (q.type === 'blank'
+      (isTextEntryType(q.type)
         ? a.blanks?.length === q.blanks.length && a.blanks.some((v) => v.trim())
         : a.optionIds?.length &&
           a.optionIds.every((id) => q.options.some((o) => o.id === id)))
     );
   });
 }
+/** 保留已有答案，逐题填写，并核对回读内容及整份答案的完整性。 */
 export async function fillBound(
   ref: Pick<FrameRef, 'tabId' | 'frameId'>,
   task: TaskRecord,
@@ -89,7 +92,7 @@ export async function fillBound(
   proposals = proposals.map((answer) => {
     const question = page.questions.find((q) => q.id === answer.questionId)!;
     if (state.draftPolicy !== 'preserve') return answer;
-    if (question.type !== 'blank')
+    if (!isTextEntryType(question.type))
       return question.existing.length ? existingProposal(question) : answer;
     return {
       ...answer,
@@ -166,6 +169,7 @@ export async function fillBound(
   });
   if (!readback) throw new Error('无法回读填写结果');
   const verified =
+    writable.length > 0 &&
     readback.status === 'pending' &&
     readback.accountId === task.accountId &&
     readback.taskKey === page.taskKey &&

@@ -1,9 +1,11 @@
 import type { AnswerProposal, PageSnapshot } from './domain';
-import type { Binding } from './messages';
+import { isTextEntryType } from './domain';
+import type { Binding, EditorContent } from './messages';
 import { extractPage } from './page-parser';
 import { rpc } from './messages';
 import { existingAnswersDigest } from './preparation';
 import { editableChoiceElements } from './choice-elements';
+import { textAnswerContent } from './published-answer';
 
 export function visible(el: Element | null | undefined): el is HTMLElement {
   if (!(el instanceof HTMLElement)) return false;
@@ -15,6 +17,7 @@ export function visible(el: Element | null | undefined): el is HTMLElement {
     el.getClientRects().length > 0
   );
 }
+/** 正文从惰性 HTML 模板还原换行，与服务端快照一致；填空沿用原纯文本。 */
 export async function liveSnapshot(): Promise<PageSnapshot | undefined> {
   const page = extractPage(document, location.href, document.cookie);
   if (!page) return undefined;
@@ -22,7 +25,7 @@ export async function liveSnapshot(): Promise<PageSnapshot | undefined> {
     q.blanks.filter((b) => b.kind === 'ueditor').map((b) => b.id),
   );
   if (ids.length) {
-    const values = await rpc<Record<string, string>>({
+    const values = await rpc<Record<string, EditorContent>>({
       target: 'background',
       kind: 'editor',
       action: 'read',
@@ -31,9 +34,17 @@ export async function liveSnapshot(): Promise<PageSnapshot | undefined> {
     });
     page.questions.forEach((q) => {
       q.blanks.forEach((b) => {
-        if (b.kind === 'ueditor') b.value = values[b.id] ?? '';
+        if (b.kind !== 'ueditor') return;
+        const content = values[b.id];
+        if (!content || typeof content.html !== 'string' || typeof content.text !== 'string')
+          throw new Error('无法读取编辑器正文，请重新加载扩展和课程页');
+        if (q.type === 'text') {
+          const template = document.createElement('template');
+          template.innerHTML = content.html;
+          b.value = textAnswerContent(template.content);
+        } else b.value = content.text;
       });
-      if (q.type === 'blank') q.existing = q.blanks.map((b) => b.value);
+      if (isTextEntryType(q.type)) q.existing = q.blanks.map((b) => b.value);
     });
   }
   return page;
@@ -82,6 +93,7 @@ export async function authorizeWrite(
   if (!binding?.operationId) return;
   await rpc({ target: 'background', kind: 'authorize-write', binding, action });
 }
+/** 在绑定与授权核验后，按真实输入位置填写并重新读取答案。 */
 export async function fillPage(
   binding: Binding,
   proposals: AnswerProposal[],
@@ -107,9 +119,15 @@ export async function fillPage(
       throw new Error('填写目标无法确认');
     const root = rootFor(page, q.id);
     if (!root) throw new Error('题目节点已变化');
-    if (q.type === 'blank') {
-      if (!proposal.blanks || proposal.blanks.length !== q.blanks.length)
-        throw new Error('填空数量不一致');
+    if (isTextEntryType(q.type)) {
+      if (
+        !proposal.blanks ||
+        proposal.blanks.length !== q.blanks.length ||
+        proposal.blanks.some(
+          (value) => typeof value !== 'string' || value.length > 2000,
+        )
+      )
+        throw new Error('文本答案数量或内容无效');
       const editorValues: { id: string; value: string }[] = [];
       for (let i = 0; i < q.blanks.length; i++) {
         const b = q.blanks[i]!;
@@ -128,9 +146,11 @@ export async function fillPage(
           ) ||
           !root.contains(input) ||
           input.disabled ||
-          input.readOnly
+          input.readOnly ||
+          input.hidden ||
+          getComputedStyle(input).display === 'none'
         )
-          throw new Error('填空位置不可编辑');
+          throw new Error('文本位置不可编辑或是隐藏同步字段，请重新识别编辑器');
         const proto =
           input instanceof HTMLTextAreaElement
             ? HTMLTextAreaElement.prototype

@@ -1,4 +1,5 @@
 import type { AnswerProposal, PageSnapshot, QuestionRecord } from './domain';
+import { isTextEntryType } from './domain';
 import { existingProposal, normalizeText } from './answers';
 import { answerImages } from './image-content';
 
@@ -7,11 +8,15 @@ export const QUESTION_TYPE_LABEL = {
   multiple: '多选题',
   boolean: '判断题',
   blank: '填空题',
+  text: '文本作答题',
   unsupported: '其他题型',
 };
+/** 为详情与导出展示完整答案；多个正文框按实际位置逐项标号。 */
 export function answerText(q: QuestionRecord, answer?: AnswerProposal): string {
   if (!answer) return '尚无答案';
-  if (q.type === 'blank')
+  if (q.type === 'text' && q.blanks.length === 1)
+    return answer.blanks?.[0] || '未填写';
+  if (isTextEntryType(q.type))
     return (
       answer.blanks
         ?.map((value, i) => '第' + (i + 1) + '空：' + (value || '未填写'))
@@ -26,19 +31,20 @@ export function answerText(q: QuestionRecord, answer?: AnswerProposal): string {
       .join('；') || '未选择'
   );
 }
+/** 比较本人答案与参考答案，同时支持选择、填空和正文。 */
 export function comparison(
   q: QuestionRecord,
   reference?: AnswerProposal,
 ): 'same' | 'different' | 'empty' {
   const mine = existingProposal(q);
   if (
-    q.type === 'blank'
+    isTextEntryType(q.type)
       ? !mine.blanks?.some((v) => v.trim())
       : !mine.optionIds?.length
   )
     return 'empty';
   if (!reference) return 'empty';
-  return q.type === 'blank'
+  return isTextEntryType(q.type)
     ? JSON.stringify(mine.blanks?.map(normalizeText)) ===
       JSON.stringify(reference.blanks?.map(normalizeText))
       ? 'same'

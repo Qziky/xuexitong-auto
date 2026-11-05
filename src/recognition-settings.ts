@@ -77,7 +77,7 @@ interface BlankMarker {
 }
 
 /** Identify answer slots without counting underscores inside code identifiers. */
-function blankMarkers(value: string): BlankMarker[] {
+export function blankMarkers(value: string): BlankMarker[] {
   const markers: BlankMarker[] = [];
   const pattern =
     /(?<![A-Za-z0-9_])[_＿]+(?=\d+\s*[.、．]|[BDOHbdoh](?:[^A-Za-z0-9_]|$)|[^A-Za-z0-9_]|$)|[（(][\s\u200b]*[)）]/g;
@@ -146,14 +146,17 @@ function bracketStructure(value: string, markers: BlankMarker[]): string {
     .join('');
 }
 
-/** Require the real input count and ordinal order while retaining math brackets. */
+/** 填空核对实际输入数量；正文只核对题干空位，避免把小问数当作编辑器数。 */
 export function validateRecognitionMarkers(
   source: string,
   recognized: string,
   context?: RecognitionMarkerContext,
 ): { valid: boolean; reason?: string } {
-  const sourceBlanks = isBlankStem(context) ? blankMarkers(source) : [];
-  const recognizedBlanks = isBlankStem(context) ? blankMarkers(recognized) : [];
+  const textStem = context?.questionType === 'text' && context.part === 'stem';
+  const sourceBlanks =
+    isBlankStem(context) || textStem ? blankMarkers(source) : [];
+  const recognizedBlanks =
+    isBlankStem(context) || textStem ? blankMarkers(recognized) : [];
   const sourceBrackets = bracketStructure(source, sourceBlanks);
   const recognizedBrackets = bracketStructure(recognized, recognizedBlanks);
   if (sourceBrackets !== recognizedBrackets)
@@ -164,6 +167,15 @@ export function validateRecognitionMarkers(
         : '括号或填空标记与网页不一致',
     };
 
+  if (textStem) {
+    if (
+      sourceBlanks.length !== recognizedBlanks.length ||
+      sourceBlanks.map((mark) => mark.ordinal ?? '').join('|') !==
+        recognizedBlanks.map((mark) => mark.ordinal ?? '').join('|')
+    )
+      return { valid: false, reason: '正文中的填空标记或顺序与网页不一致' };
+    return { valid: true };
+  }
   if (isBlankStem(context)) {
     const expected = context.blankCount;
     if (expected === undefined || !Number.isInteger(expected) || expected < 0)

@@ -6,6 +6,7 @@ import {
 } from '../src/domain';
 import { connectionHealth } from '../src/progress';
 import { reconcileState } from '../src/ui/progress-state';
+import { workspaceStep } from '../src/ui/Workspace';
 const mock = vi.hoisted(() => ({
   store: {
     state: undefined as any,
@@ -228,6 +229,20 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 describe('分步工作台实际后台流程', () => {
+  it('只填写可用子集时保持待检查，不能跳到整份填写完成', async () => {
+    mock.page.questions.push({ id: 'q2', number: 2, stem: '合成简答题', type: 'text', required: true,
+      existing: [''], blanks: [{ id: 'answer2', kind: 'ueditor', value: '' }], options: [], issues: ['文字未确认'] });
+    await action('decode');
+    await action('solve');
+    await action('fill');
+    const workflow = mock.store.state.workflows[id];
+    expect(workflow.readbackVerified).toBe(true);
+    expect(workflow.phase).toBe('review');
+    expect(workflow.note).toContain('仅部分答案');
+    expect(workspaceStep(mock.store.state, id)).toBe(2);
+    await action('submit');
+    expect(mock.frameCall.mock.calls.some(([, cmd]) => cmd.op === 'submit')).toBe(false);
+  });
   it('重载清除准备缓存后可核验原草稿，不再保存或提交', async () => {
     await action('decode'); await action('solve'); await action('fill');
     mock.confirmedDraft = false;

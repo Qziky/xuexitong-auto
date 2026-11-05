@@ -1,14 +1,15 @@
-import type { Binding } from '../messages';
+import type { Binding, EditorContent } from '../messages';
 import { state } from './store';
 import { assertWriteOperation } from './write-authorization';
 
+/** 按页面绑定读写编辑器，返回 HTML 正文和旧纯文本供调用方分别还原。 */
 export async function editorBridge(
   tabId: number,
   frameId: number,
   binding: Binding,
   action: 'read' | 'write',
   values: { id: string; value?: string }[],
-): Promise<Record<string, string>> {
+): Promise<Record<string, EditorContent>> {
   if (action === 'write') {
     // Wait for editor initialization without performing a write. A cancel during
     // the ready callback must not leave a delayed MAIN-world write behind.
@@ -101,7 +102,7 @@ export async function editorBridge(
       const ue = (window as any).UE;
       if (!ue?.getEditor || entries.length > 100)
         throw new Error('页面编辑器不可用');
-      const result: Record<string, string> = {};
+      const result: Record<string, EditorContent> = {};
       for (const entry of entries) {
         if (!/^(?:answerEditor|textarea|answer)\d+$/.test(entry.id))
           throw new Error('编辑器 ID 无效');
@@ -138,7 +139,12 @@ export async function editorBridge(
           editor.fireEvent('contentchange');
           editor.sync?.();
         }
-        result[entry.id] = String(editor.getContentTxt?.() ?? '').trim();
+        if (typeof editor.getContent !== 'function')
+          throw new Error('无法读取编辑器正文');
+        result[entry.id] = {
+          html: String(editor.getContent()),
+          text: String(editor.getContentTxt?.() ?? '').trim(),
+        };
       }
       return result;
     },

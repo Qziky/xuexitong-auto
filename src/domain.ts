@@ -1,10 +1,14 @@
-export const TEXT_PROCESSING_VERSION = 10;
-export const PAGE_TEXT_PROCESSING_VERSION = 15;
+export const TEXT_PROCESSING_VERSION = 14;
+export const PAGE_TEXT_PROCESSING_VERSION = 19;
 export type TaskType = 'video' | 'quiz' | 'homework';
 export type TaskStatus =
   'pending' | 'submitted' | 'complete' | 'unknown' | 'review' | 'expired';
 export type QuestionType =
-  'single' | 'multiple' | 'boolean' | 'blank' | 'unsupported';
+  'single' | 'multiple' | 'boolean' | 'blank' | 'text' | 'unsupported';
+/** 填空与正文答案共用按网页输入位置排列的文本数组。 */
+export function isTextEntryType(type: QuestionType): boolean {
+  return type === 'blank' || type === 'text';
+}
 export type DraftPolicy = 'preserve' | 'overwrite';
 export type QueuePhase = 'idle' | 'running' | 'paused' | 'stopped' | 'done';
 export type ItemStage =
@@ -333,6 +337,7 @@ export interface PageSnapshot {
 export interface AnswerProposal {
   questionId: string;
   optionIds?: string[];
+  /** 按真实作答位置逐项保存；text 题每一项对应一个正文编辑器。 */
   blanks?: string[];
   explanation: string;
   needsReview: boolean;
